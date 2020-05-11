@@ -25,8 +25,8 @@ fi
 
 if [ -z "$LOC" ]
 then
-	echo "Setting default location: US California"
-	LOC="us_california"
+	echo "Setting default location: US (any, using pattern match)"
+	LOC="us"
 fi
 
 if [ -z "$PIA_INTERFACE" ]
