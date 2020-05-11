@@ -70,8 +70,7 @@ PIA_INTERFACE="$PIA_INTERFACE"
 CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
 
 ENDCONFIG
-	echo "Please fill user/pass in $CONFIG so we can fetch an api auth token"
-	exit 1
+	echo "Config saved"
 fi
 
 # fetch data.json if missing
@@ -79,6 +78,13 @@ if ! [ -r data.json ]
 then
 	echo "Fetching wireguard server list from github"
 	wget -O data.json 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
+fi
+
+if [ "$(jq -r .$LOC data.json)" == "null" ]
+then
+	echo "No exact match for location \"$LOC\" trying pattern"
+	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
+	LOC=$(jq 'with_entries(if (.key|test("^'$LOC'")) then ( {key: .key, value: .value } ) else empty end ) | keys' data.json | grep ^\  | cut -d\" -f2 | shuf -n 1)
 fi
 
 if [ "$(jq -r .$LOC data.json)" == "null" ]
@@ -160,7 +166,10 @@ SERVER_PUBLIC_KEY="$(jq -r .server_key  remote.info)"
 SERVER_IP="$(jq -r .server_ip   remote.info)"
 SERVER_PORT="$(jq -r .server_port remote.info)"
 
-WGCONF="${PIA_INTERFACE}.conf"
+if [ -z "$WGCONF" ]
+then
+	WGCONF="${PIA_INTERFACE}.conf"
+fi
 
 echo "Generating $WGCONF"
 echo
