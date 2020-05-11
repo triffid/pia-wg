@@ -1,40 +1,198 @@
 #!/bin/bash
 
-# requires data.json from the PIA application /opt/piavpn/etc/data.json in the working dir
+# original scrpt posted by tpretz at https://www.reddit.com/r/PrivateInternetAccess/comments/g08ojr/is_wireguard_available_yet/fnvs20c/
+# and at https://gist.github.com/tpretz/5ea1226517d95361f063f621e45de0a6
+#
+# significantly modified by Triffid_Hunter
+#
+# After the first run to fetch various data files and an auth token, this script does not require the ability to DNS resolve privateinternetaccess.com
 
-USR=""
-PASS=""
-LOC="uk"
+if [ -z "$CONFIG" ]
+then
+	CONFIG="pia-wg.conf"
+fi
 
-# generated public key
-PKEY=""
+if [ -r "$CONFIG" ]
+then
+	source "$CONFIG"
+fi
 
+if [ -z "$CLIENT_PRIVATE_KEY" ]
+then
+	echo "Generating private key"
+	CLIENT_PRIVATE_KEY="$(wg genkey)"
+fi
 
-PIAAPI="https://www.privateinternetaccess.com"
+if [ -z "$LOC" ]
+then
+	echo "Setting default location: US California"
+	LOC="us_california"
+fi
+
+if [ -z "$PIA_INTERFACE" ]
+then
+	echo "Setting default wireguard interface name: pia"
+	PIA_INTERFACE="pia"
+fi
+
 # get token
+if [ -z "$TOK" ] && [ -r .token ]
+then
+	TOK=$(< .token)
+fi
 
-TOK=$(curl -X POST \
--H "Content-Type: application/json" \
--d "{\"username\":\"$USR\",\"password\":\"$PASS\"}" \
-"$PIAAPI/api/client/v2/token" | jq -r '.token')
+if [ -z "$TOK" ] || ([ -z "$USER" ] || [ -z "$PASS" ])
+then
+	read -p "Please enter your privateinternet.com username: " USER
+	echo "If you do not wish to save your password, and want to be asked every time an auth token is required, simply press enter now"
+	read -p "Please enter your privateinternet.com password: " -s PASS
+	cat <<ENDCONFIG > "$CONFIG"
+# your privateinternetaccess.com username (not needed if you already have an auth token)
+USER="$USER"
+# your privateinternetaccess.com password (not needed if you already have an auth token)
+PASS="$PASS"
 
-echo "got token: $TOK"
+# your desired endpoint location
+LOC="$LOC"
+
+# the name of the network interface
+PIA_INTERFACE="$PIA_INTERFACE"
+
+# generate this with "wg genkey"
+CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
+
+ENDCONFIG
+	echo "Please fill user/pass in $CONFIG so we can fetch an api auth token"
+	exit 1
+fi
+
+# fetch data.json if missing
+if ! [ -r data.json ]
+then
+	echo "Fetching wireguard server list from github"
+	wget -O data.json 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
+fi
+
+if [ "$(jq -r .$LOC data.json)" == "null" ]
+then
+	echo "Location $LOC not found!"
+	echo "Options are:"
+	jq keys data.json
+	echo
+	echo "Please edit $CONFIG and change your desired location, then try again"
+	exit 1
+fi
+
+if [ -z "$TOK" ]
+then
+	if [ -z "$PASS" ]
+	then
+		echo "A new auth token is required, and you have not saved your password."
+		echo "Your password will NOT be saved if you enter it now."
+		read -p "Please enter your privateinternetaccess.com password for $USER: " -s PASS
+	fi
+	TOK=$(curl -X POST \
+	-H "Content-Type: application/json" \
+	-d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" \
+	"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
+
+	echo "got token: $TOK"
+fi
 
 if [ -z "$TOK" ]; then
-  echo "no token, exiting"
+  echo "Failed to authenticate with privateinternetaccess"
   exit 1
 fi
 
-WG_URL=$(cat data.json | jq -r ".locations.$LOC.wireguardUDP")
+echo "$TOK" > .token
+
+if [ -z "$CLIENT_PUBLIC_KEY" ]
+then
+	CLIENT_PUBLIC_KEY=$(wg pubkey <<< $CLIENT_PRIVATE_KEY)
+fi
+
+if [ -z "$CLIENT_PUBLIC_KEY" ]
+then
+	echo "Failed to generate client public key, check your config!"
+	exit 1
+fi
+
+WG_URL=$(cat data.json | jq -r ".$LOC.wireguard.host")
+WG_SERIAL=$(cat data.json | jq -r ".$LOC.wireguard.serial")
+WG_HOST=$(cut -d: -f1 <<< "$WG_URL")
+WG_PORT=$(cut -d: -f2 <<< "$WG_URL")
 
 if [ -z "$WG_URL" ]; then
   echo "no wg region, exiting"
   exit 1
 fi
 
-# should TLS verify here
-curl -Gkv \
-  --data-urlencode "pubkey=$PKEY" \
-  --data-urlencode "pt=$TOK" \
-"https://$WG_URL/addKey"
+echo "Registering public key with PIA endpoint $LOC ($WG_HOST)"
 
+# should TLS verify here
+# can't verify fully as PIA's wireguard endpoint certs don't have a chain back to a root CA
+curl -GksS \
+  --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+  --data-urlencode "pt=$TOK" \
+  --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
+"https://$WG_SERIAL:$WG_PORT/addKey" | tee remote.info.temp || exit 1
+
+if [ "$(jq -r .status remote.info.temp)" != "OK" ]
+then
+	echo "WG key registration failed - bad token?"
+	echo "If you get an auth error, consider deleting .token and getting a new one"
+	exit 1
+fi
+
+mv remote.info.temp \
+	remote.info
+
+PEER_IP="$(jq -r .peer_ip     remote.info)"
+SERVER_PUBLIC_KEY="$(jq -r .server_key  remote.info)"
+SERVER_IP="$(jq -r .server_ip   remote.info)"
+SERVER_PORT="$(jq -r .server_port remote.info)"
+
+WGCONF="${PIA_INTERFACE}.conf"
+
+echo "Generating $WGCONF"
+echo
+
+tee "$WGCONF" <<ENDWG
+[Interface]
+PrivateKey = $CLIENT_PRIVATE_KEY
+Address    = $PEER_IP
+
+[Peer]
+PublicKey  = $SERVER_PUBLIC_KEY
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint   = $SERVER_IP:$SERVER_PORT
+ENDWG
+
+echo
+echo "OK"
+
+echo "Bringing up wireguard interface $PIA_INTERFACE... "
+if [ $EUID -eq 0 ]
+then
+	wg-quick down "./$WGCONF"
+
+	GATEWAY_IP=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
+	GATEWAY_DEV=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
+
+	# jq -r '.dns_servers[0:2]' remote.info | grep ^\  | cut -d\" -f2 | sed -e 's/^/nameserver /' > /etc/resolv.conf
+	wg-quick up "./$WGCONF"
+else
+	echo wg-quick down "./$WGCONF"
+	sudo wg-quick down "./$WGCONF"
+
+	GATEWAY_IP= $(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
+	GATEWAY_DEV=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	echo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
+	sudo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
+
+	echo wg-quick up "./$WGCONF"
+	sudo wg-quick up "./$WGCONF"
+fi
+
+echo "Done"
