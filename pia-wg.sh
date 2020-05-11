@@ -178,6 +178,8 @@ tee "$WGCONF" <<ENDWG
 [Interface]
 PrivateKey = $CLIENT_PRIVATE_KEY
 Address    = $PEER_IP
+Table      = off
+# DNS        = $(jq -r '.dns_servers[0:2]' remote.info | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
 
 [Peer]
 PublicKey  = $SERVER_PUBLIC_KEY
@@ -197,7 +199,6 @@ then
 	GATEWAY_DEV=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
 	ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 
-	# jq -r '.dns_servers[0:2]' remote.info | grep ^\  | cut -d\" -f2 | sed -e 's/^/nameserver /' > /etc/resolv.conf
 	wg-quick up "./$WGCONF"
 else
 	echo wg-quick down "./$WGCONF"
