@@ -41,11 +41,19 @@ then
 	TOK=$(< .token)
 fi
 
-if [ -z "$TOK" ] || ([ -z "$USER" ] || [ -z "$PASS" ])
+echo $TOK
+
+if [ -z "$TOK" ] && ([ -z "$USER" ] || [ -z "$PASS" ])
 then
-	read -p "Please enter your privateinternet.com username: " USER
-	echo "If you do not wish to save your password, and want to be asked every time an auth token is required, simply press enter now"
-	read -p "Please enter your privateinternet.com password: " -s PASS
+	if [ -z "$USER" ]
+	then
+		read -p "Please enter your privateinternet.com username: " USER
+	fi
+	if [ -z "$PASS" ]
+	then
+		echo "If you do not wish to save your password, and want to be asked every time an auth token is required, simply press enter now"
+		read -p "Please enter your privateinternet.com password: " -s PASS
+	fi
 	cat <<ENDCONFIG > "$CONFIG"
 # your privateinternetaccess.com username (not needed if you already have an auth token)
 USER="$USER"
