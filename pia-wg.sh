@@ -195,8 +195,8 @@ if [ $EUID -eq 0 ]
 then
 	wg-quick down "./$WGCONF"
 
-	GATEWAY_IP=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
-	GATEWAY_DEV=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	GATEWAY_IP=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
+	GATEWAY_DEV=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
 	ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 
 	wg-quick up "./$WGCONF"
@@ -204,8 +204,8 @@ else
 	echo wg-quick down "./$WGCONF"
 	sudo wg-quick down "./$WGCONF"
 
-	GATEWAY_IP= $(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
-	GATEWAY_DEV=$(ip route show | grep ^default | grep via | tail -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	GATEWAY_IP= $(ip route show | grep ^default | grep via | head -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
+	GATEWAY_DEV=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
 	echo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 	sudo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 
