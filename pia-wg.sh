@@ -7,9 +7,15 @@
 #
 # After the first run to fetch various data files and an auth token, this script does not require the ability to DNS resolve privateinternetaccess.com
 
+if [ -z "$CONFIGDIR" ]
+then
+	CONFIGDIR="$HOME/.config/pia-wg"
+	mkdir -p "$CONFIGDIR"
+fi
+
 if [ -z "$CONFIG" ]
 then
-	CONFIG="pia-wg.conf"
+	CONFIG="$CONFIGDIR/pia-wg.conf"
 fi
 
 if [ -r "$CONFIG" ]
@@ -19,8 +25,19 @@ fi
 
 if [ -z "$CLIENT_PRIVATE_KEY" ]
 then
-	echo "Generating private key"
+	echo "Generating new private key"
 	CLIENT_PRIVATE_KEY="$(wg genkey)"
+fi
+
+if [ -z "$CLIENT_PUBLIC_KEY" ]
+then
+	CLIENT_PUBLIC_KEY=$(wg pubkey <<< "$CLIENT_PRIVATE_KEY")
+fi
+
+if [ -z "$CLIENT_PUBLIC_KEY" ]
+then
+	echo "Failed to generate client public key, check your config!"
+	exit 1
 fi
 
 if [ -z "$LOC" ]
@@ -35,24 +52,39 @@ then
 	PIA_INTERFACE="pia"
 fi
 
-# get token
-if [ -z "$TOK" ] && [ -r .token ]
+if [ -z "$TOKENFILE" ]
 then
-	TOK=$(< .token)
+	TOKENFILE="$CONFIGDIR/.token"
 fi
 
-echo $TOK
+if [ -z "$DATAFILE" ]
+then
+	DATAFILE="$CONFIGDIR/data.json"
+fi
+
+if [ -z "$REMOTEINFO" ]
+then
+	REMOTEINFO="$CONFIGDIR/remote.info"
+fi
+
+# get token
+if [ -z "$TOK" ] && [ -r "$TOKENFILE" ]
+then
+	TOK=$(< "$TOKENFILE")
+fi
+
+# echo "$TOK"
 
 if [ -z "$TOK" ] && ([ -z "$USER" ] || [ -z "$PASS" ])
 then
 	if [ -z "$USER" ]
 	then
-		read -p "Please enter your privateinternet.com username: " USER
+		read -p "Please enter your privateinternetaccess.com username: " USER
 	fi
 	if [ -z "$PASS" ]
 	then
 		echo "If you do not wish to save your password, and want to be asked every time an auth token is required, simply press enter now"
-		read -p "Please enter your privateinternet.com password: " -s PASS
+		read -p "Please enter your privateinternetaccess.com password: " -s PASS
 	fi
 	cat <<ENDCONFIG > "$CONFIG"
 # your privateinternetaccess.com username (not needed if you already have an auth token)
@@ -63,10 +95,10 @@ PASS="$PASS"
 # your desired endpoint location
 LOC="$LOC"
 
-# the name of the network interface
-PIA_INTERFACE="$PIA_INTERFACE"
+# the name of the network interface (default: pia)
+# PIA_INTERFACE="$PIA_INTERFACE"
 
-# generate this with "wg genkey"
+# wireguard client-side private key (new key generated every invocation if not specified)
 CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
 
 ENDCONFIG
@@ -74,24 +106,24 @@ ENDCONFIG
 fi
 
 # fetch data.json if missing
-if ! [ -r data.json ]
+if ! [ -r "$DATAFILE" ]
 then
 	echo "Fetching wireguard server list from github"
-	wget -O data.json 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
+	wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
 fi
 
-if [ "$(jq -r .$LOC data.json)" == "null" ]
+if [ "$(jq -r .$LOC "$DATAFILE")" == "null" ]
 then
 	echo "No exact match for location \"$LOC\" trying pattern"
 	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
-	LOC=$(jq 'with_entries(if (.key|test("^'$LOC'")) then ( {key: .key, value: .value } ) else empty end ) | keys' data.json | grep ^\  | cut -d\" -f2 | shuf -n 1)
+	LOC=$(jq 'with_entries(if (.key|test("^'$LOC'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
 fi
 
-if [ "$(jq -r .$LOC data.json)" == "null" ]
+if [ "$(jq -r .$LOC "$DATAFILE")" == "null" ]
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
-	jq keys data.json
+	jq keys "$DATAFILE"
 	echo
 	echo "Please edit $CONFIG and change your desired location, then try again"
 	exit 1
@@ -118,21 +150,12 @@ if [ -z "$TOK" ]; then
   exit 1
 fi
 
-echo "$TOK" > .token
+touch "$TOKENFILE"
+chmod 600 "$TOKENFILE"
+echo "$TOK" > "$TOKENFILE"
 
-if [ -z "$CLIENT_PUBLIC_KEY" ]
-then
-	CLIENT_PUBLIC_KEY=$(wg pubkey <<< $CLIENT_PRIVATE_KEY)
-fi
-
-if [ -z "$CLIENT_PUBLIC_KEY" ]
-then
-	echo "Failed to generate client public key, check your config!"
-	exit 1
-fi
-
-WG_URL=$(cat data.json | jq -r ".$LOC.wireguard.host")
-WG_SERIAL=$(cat data.json | jq -r ".$LOC.wireguard.serial")
+WG_URL=$(jq -r ".$LOC.wireguard.host" "$DATAFILE")
+WG_SERIAL=$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")
 WG_HOST=$(cut -d: -f1 <<< "$WG_URL")
 WG_PORT=$(cut -d: -f2 <<< "$WG_URL")
 
@@ -149,26 +172,26 @@ curl -GksS \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
   --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
-"https://$WG_SERIAL:$WG_PORT/addKey" | tee remote.info.temp || exit 1
+"https://$WG_SERIAL:$WG_PORT/addKey" | tee "$REMOTEINFO.temp" || exit 1
 
-if [ "$(jq -r .status remote.info.temp)" != "OK" ]
+if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
 then
 	echo "WG key registration failed - bad token?"
 	echo "If you get an auth error, consider deleting .token and getting a new one"
 	exit 1
 fi
 
-mv remote.info.temp \
-	remote.info
+mv  "$REMOTEINFO.temp" \
+	"$REMOTEINFO"
 
-PEER_IP="$(jq -r .peer_ip     remote.info)"
-SERVER_PUBLIC_KEY="$(jq -r .server_key  remote.info)"
-SERVER_IP="$(jq -r .server_ip   remote.info)"
-SERVER_PORT="$(jq -r .server_port remote.info)"
+PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
+SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
+SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
+SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
 
 if [ -z "$WGCONF" ]
 then
-	WGCONF="${PIA_INTERFACE}.conf"
+	WGCONF="$CONFIGDIR/${PIA_INTERFACE}.conf"
 fi
 
 echo "Generating $WGCONF"
@@ -179,7 +202,7 @@ tee "$WGCONF" <<ENDWG
 PrivateKey = $CLIENT_PRIVATE_KEY
 Address    = $PEER_IP
 Table      = off
-# DNS        = $(jq -r '.dns_servers[0:2]' remote.info | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
+DNS        = $(jq -r '.dns_servers[0:2]' "$REMOTEINFO" | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
 
 [Peer]
 PublicKey  = $SERVER_PUBLIC_KEY
@@ -193,24 +216,36 @@ echo "OK"
 echo "Bringing up wireguard interface $PIA_INTERFACE... "
 if [ $EUID -eq 0 ]
 then
-	wg-quick down "./$WGCONF"
+	# scratch current config if any
+	# TODO: put new settings into existing interface instead of teardown/re-up to prevent leaks
+	wg-quick down "$WGCONF"
 
-	GATEWAY_IP=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
-	GATEWAY_DEV=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | cut -d\  -f1)
+	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
+
+	# Note: unnecessary if Table != off above, but doesn't hurt.
 	ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 
-	wg-quick up "./$WGCONF"
-else
-	echo wg-quick down "./$WGCONF"
-	sudo wg-quick down "./$WGCONF"
+	# Note: only if Table = off in wireguard config file above
+	ip route add default dev $PIA_INTERFACE
 
-	GATEWAY_IP= $(ip route show | grep ^default | grep via | head -n1 | perl -ne '/via (\S+)/ && print "$1\n";')
-	GATEWAY_DEV=$(ip route show | grep ^default | grep via | head -n1 | perl -ne '/dev (\S+)/ && print "$1\n";')
+	# Specific to my setup
+	ip route add default table vpnonly default dev $PIA_INTERFACE
+
+	# bring up wireguard interface
+	wg-quick up "$WGCONF"
+else
+	echo wg-quick down "$WGCONF"
+	sudo wg-quick down "$WGCONF"
+
+	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | cut -d\  -f1)
+	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
+
 	echo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 	sudo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
 
-	echo wg-quick up "./$WGCONF"
-	sudo wg-quick up "./$WGCONF"
+	echo wg-quick up "$WGCONF"
+	sudo wg-quick up "$WGCONF"
 fi
 
 echo "Done"
