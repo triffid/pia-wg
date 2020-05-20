@@ -214,35 +214,35 @@ echo
 echo "OK"
 
 echo "Bringing up wireguard interface $PIA_INTERFACE... "
-if [ $EUID -eq 0 ]
+if [ "$EUID" -eq 0 ]
 then
 	# scratch current config if any
 	# TODO: put new settings into existing interface instead of teardown/re-up to prevent leaks
 	wg-quick down "$WGCONF"
 
-	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | cut -d\  -f1)
+	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'via\s+\K\S+')
 	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
 
 	# Note: unnecessary if Table != off above, but doesn't hurt.
-	ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
-
-	# Note: only if Table = off in wireguard config file above
-	ip route add default dev $PIA_INTERFACE
-
-	# Specific to my setup
-	ip route add default table vpnonly default dev $PIA_INTERFACE
+	ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
 
 	# bring up wireguard interface
 	wg-quick up "$WGCONF"
+
+	# Note: only if Table = off in wireguard config file above
+	ip route add default dev "$PIA_INTERFACE"
+
+	# Specific to my setup
+	ip route add default table vpnonly dev "$PIA_INTERFACE"
 else
 	echo wg-quick down "$WGCONF"
 	sudo wg-quick down "$WGCONF"
 
-	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | cut -d\  -f1)
+	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'via\s+\K\S+')
 	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
 
-	echo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
-	sudo ip route add $SERVER_IP via $GATEWAY_IP dev $GATEWAY_DEV
+	echo ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
+	sudo ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
 
 	echo wg-quick up "$WGCONF"
 	sudo wg-quick up "$WGCONF"
