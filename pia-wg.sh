@@ -112,11 +112,11 @@ then
 	wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
 fi
 
-if [ "$(jq -r .$LOC "$DATAFILE")" == "null" ]
+if [ "$(jq -r ".$LOC" "$DATAFILE")" == "null" ]
 then
-	echo "No exact match for location \"$LOC\" trying pattern"
+	# echo "No exact match for location \"$LOC\" trying pattern"
 	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
-	LOC=$(jq 'with_entries(if (.key|test("^'$LOC'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
+	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
 fi
 
 if [ "$(jq -r .$LOC "$DATAFILE")" == "null" ]
@@ -172,7 +172,15 @@ curl -GksS \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
   --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
-"https://$WG_SERIAL:$WG_PORT/addKey" | tee "$REMOTEINFO.temp" || exit 1
+"https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp" || (
+	echo "Failed to register key with PIA endpoint $LOC ($WG_HOST)"
+	if ip link list "$PIA_INTERFACE" > /dev/null
+	then
+		echo "If you're trying to change hosts because your link has stopped working,"
+		echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
+	fi
+	exit 1
+)
 
 if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
 then
@@ -194,10 +202,10 @@ then
 	WGCONF="$CONFIGDIR/${PIA_INTERFACE}.conf"
 fi
 
-echo "Generating $WGCONF"
-echo
+# echo "Generating $WGCONF"
+# echo
 
-tee "$WGCONF" <<ENDWG
+cat > "$WGCONF" <<ENDWG
 [Interface]
 PrivateKey = $CLIENT_PRIVATE_KEY
 Address    = $PEER_IP
@@ -210,36 +218,73 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint   = $SERVER_IP:$SERVER_PORT
 ENDWG
 
-echo
-echo "OK"
+# echo
+# echo "OK"
 
-echo "Bringing up wireguard interface $PIA_INTERFACE... "
+# echo "Bringing up wireguard interface $PIA_INTERFACE... "
 if [ "$EUID" -eq 0 ]
 then
 	# scratch current config if any
-	# TODO: put new settings into existing interface instead of teardown/re-up to prevent leaks
-	wg-quick down "$WGCONF"
+	# put new settings into existing interface instead of teardown/re-up to prevent leaks
+	if ip link list $PIA_INTERFACE > /dev/null
+	then
+		echo "Updating existing interface '$PIA_INTERFACE'"
 
-	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'via\s+\K\S+')
-	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
+		OLD_PEER_IP="$(ip -j addr show dev pia | jq '.[].addr_info[].local')"
+		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2))"
+		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
 
-	# Note: unnecessary if Table != off above, but doesn't hurt.
-	ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
+		# ensure we don't get a packet storm loop
+		ip rule add to "$SERVER_IP" lookup china pref 10
 
-	# bring up wireguard interface
-	wg-quick up "$WGCONF"
+		echo "    [Change Peer from $OLD_KEY to $SERVER_PUBLIC_KEY]"
+		wg set "$PIA_INTERFACE" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
 
-	# Note: only if Table = off in wireguard config file above
-	ip route add default dev "$PIA_INTERFACE"
+		if [ "$PEER_IP" != "$OLD_PEER_IP" ]
+		then
+			echo "    [Change $PIA_INTERFACE ipaddr from $OLD_PEER_IP to $PEER_IP]"
+			# update link ip address in case
+			ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
+		fi
 
-	# Specific to my setup
-	ip route add default table vpnonly dev "$PIA_INTERFACE"
+		# remove old key
+		wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
+		# remove old route
+		ip rule del to "$OLD_PEER_IP" lookup china
+	else
+		echo "Bringing up interface '$PIA_INTERFACE'"
+
+		# Note: unnecessary if Table != off above, but doesn't hurt.
+		ip rule add to "$SERVER_IP" lookup china
+
+		# bring up wireguard interface
+		wg-quick up "$WGCONF"
+
+		# Note: only if Table = off in wireguard config file above
+		ip route add default dev "$PIA_INTERFACE"
+
+		# Specific to my setup
+		ip route add default table vpnonly dev "$PIA_INTERFACE"
+	fi
 else
-	echo wg-quick down "$WGCONF"
-	sudo wg-quick down "$WGCONF"
+	echo ip rule add to "$SERVER_IP" lookup china pref 10
+	sudo ip rule add to "$SERVER_IP" lookup china pref 10
 
-	GATEWAY_IP=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'via\s+\K\S+')
-	GATEWAY_DEV=$(ip route get "$SERVER_IP" | head -n1 | grep -oP 'dev\s+\K\S+')
+	echo wg set "$PIA_INTERFACE" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+	sudo wg set "$PIA_INTERFACE" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+
+	if ip link list $PIA_INTERFACE > /dev/null
+	then
+		OLD_PEER_IP="$(ip -j addr show dev pia | jq '.[].addr_info[].local')"
+		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2))"
+		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
+
+		echo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
+		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
+
+		echo ip rule del to "$OLD_PEER_IP" lookup china
+		sudo ip rule del to "$OLD_PEER_IP" lookup china
+	fi
 
 	echo ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
 	sudo ip route add "$SERVER_IP" via "$GATEWAY_IP" dev "$GATEWAY_DEV"
