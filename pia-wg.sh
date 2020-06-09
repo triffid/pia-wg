@@ -231,14 +231,14 @@ then
 		echo "Updating existing interface '$PIA_INTERFACE'"
 
 		OLD_PEER_IP="$(ip -j addr show dev pia | jq '.[].addr_info[].local')"
-		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2))"
+		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2-))"
 		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
 
 		# ensure we don't get a packet storm loop
 		ip rule add to "$SERVER_IP" lookup china pref 10
 
 		echo "    [Change Peer from $OLD_KEY to $SERVER_PUBLIC_KEY]"
-		wg set "$PIA_INTERFACE" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+		wg set "$PIA_INTERFACE" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 
 		if [ "$PEER_IP" != "$OLD_PEER_IP" ]
 		then
