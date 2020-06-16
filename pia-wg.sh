@@ -185,7 +185,7 @@ curl -GksS \
 if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
 then
 	echo "WG key registration failed - bad token?"
-	echo "If you get an auth error, consider deleting .token and getting a new one"
+	echo "If you see an auth error, consider deleting $TOKENFILE and getting a new token"
 	exit 1
 fi
 
