@@ -77,6 +77,11 @@ then
 	PIA_INTERFACE="pia"
 fi
 
+if [ -z "$PIA_CERT" ]
+then
+	PIA_CERT="$CONFIGDIR/rsa_4096.crt"
+fi
+
 if [ -z "$TOKENFILE" ]
 then
 	TOKENFILE="$CONFIGDIR/.token"
@@ -153,6 +158,12 @@ then
 	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
 fi
 
+if ! [ -r "$PIA_CERT" ]
+then
+	echo "Fetching PIA self-signed cert from github"
+	curl 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
+fi
+
 if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
 then
 	echo "Location $LOC not found!"
@@ -191,7 +202,7 @@ echo "$TOK" > "$TOKENFILE"
 WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
 WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
 WG_URL="$(jq -r ".$LOC.wireguard.host" "$DATAFILE")"
-# WG_SERIAL="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
+WG_SERIAL="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
 WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 WG_HOST="$(cut -d: -f1 <<< "$WG_URL")"
 WG_PORT="$(cut -d: -f2 <<< "$WG_URL")"
@@ -206,8 +217,10 @@ echo "Registering public key with $WG_NAME ($WG_HOST)"
 curl -GsS \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
-  --resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
-"https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp" || (
+  --cacert "$PIA_CERT" \
+  --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
+  "https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp" \
+  || (
 	echo "Failed to register key with $WG_SN ($WG_HOST)"
 	if ip link list "$PIA_INTERFACE" > /dev/null
 	then
@@ -281,14 +294,15 @@ then
 			wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 		fi
 
-		if [ "$PEER_IP" != "$OLD_PEER_IP" ]
+		if [ "$PEER_IP" != "$OLD_PEER_IP/32" ]
 		then
 			echo "    [Change $PIA_INTERFACE ipaddr from $OLD_PEER_IP to $PEER_IP]"
 			# update link ip address in case
 			ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
+			ip addr del "$OLD_PEER_IP/32" dev "$PIA_INTERFACE"
 
 			# remove old route
-			ip rule del to "$OLD_PEER_IP" lookup china
+			ip rule del to "$OLD_PEER_IP" lookup china 2>/dev/null
 		fi
 	else
 		echo "Bringing up interface '$PIA_INTERFACE'"
