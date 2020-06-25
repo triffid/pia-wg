@@ -187,17 +187,18 @@ then
 	-d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" \
 	"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
 
-	echo "got token: $TOK"
-fi
+	# echo "got token: $TOK"
 
-if [ -z "$TOK" ]; then
-  echo "Failed to authenticate with privateinternetaccess"
-  exit 1
-fi
+	if [ -z "$TOK" ]; then
+		echo "Failed to authenticate with privateinternetaccess"
+		echo "Check your user/pass and try again"
+		exit 1
+	fi
 
-touch "$TOKENFILE"
-chmod 600 "$TOKENFILE"
-echo "$TOK" > "$TOKENFILE"
+	touch "$TOKENFILE"
+	chmod 600 "$TOKENFILE"
+	echo "$TOK" > "$TOKENFILE"
+fi
 
 WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
 WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
@@ -214,14 +215,14 @@ fi
 
 echo "Registering public key with $WG_NAME ($WG_HOST)"
 
-curl -GsS \
+if ! curl -GsS \
   --max-time 5 \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
   --cacert "$PIA_CERT" \
   --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
-  "https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp" \
-  || (
+  "https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+then
 	echo "Failed to register key with $WG_SN ($WG_HOST)"
 	if ip link list "$PIA_INTERFACE" > /dev/null
 	then
@@ -229,7 +230,7 @@ curl -GsS \
 		echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
 	fi
 	exit 1
-)
+fi
 
 if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
 then
@@ -361,6 +362,7 @@ echo -n "Waiting for connection to stabilise..."
 while ! ping -n -c1 -w 5 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
+	sleep 0.1 # so we can catch ctrl+c
 done
 echo " OK"
 
