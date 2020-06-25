@@ -215,6 +215,7 @@ fi
 echo "Registering public key with $WG_NAME ($WG_HOST)"
 
 curl -GsS \
+  --max-time 5 \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
   --cacert "$PIA_CERT" \
@@ -283,6 +284,7 @@ then
 		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2-))"
 		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
 
+		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
 		ip rule add to "$SERVER_IP" lookup china pref 10
 
@@ -308,7 +310,7 @@ then
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
-		ip rule add to "$SERVER_IP" lookup china
+		ip rule add to "$SERVER_IP" lookup china pref 10
 
 		# bring up wireguard interface
 # 		wg-quick up "$WGCONF"
@@ -356,7 +358,7 @@ fi
 echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
 
 echo -n "Waiting for connection to stabilise..."
-while ! ping -n -c1 -w 5 "$SERVER_VIP" &>/dev/null
+while ! ping -n -c1 -w 5 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 done
