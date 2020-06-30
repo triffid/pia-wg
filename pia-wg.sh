@@ -224,7 +224,7 @@ if ! curl -GsS \
   "https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp"
 then
 	echo "Failed to register key with $WG_SN ($WG_HOST)"
-	if ip link list "$PIA_INTERFACE" > /dev/null
+	if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
 	then
 		echo "If you're trying to change hosts because your link has stopped working,"
 		echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
@@ -319,6 +319,10 @@ then
 		ip link set dev "$PIA_INTERFACE" up || exit 1
 		wg set "$PIA_INTERFACE" private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 		ip addr replace "$PEER_IP" dev "$PIA_INTERFACE" || exit 1
+
+		# Note: unnecessary if Table != off above, but doesn't hurt.
+		# doubled because this listing appears to disappear sometimes
+		ip rule add to "$SERVER_IP" lookup china pref 10
 
 		# Note: only if Table = off in wireguard config file above
 		ip route add default dev "$PIA_INTERFACE"
