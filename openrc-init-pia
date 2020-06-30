@@ -1,0 +1,54 @@
+#!/sbin/openrc-run
+
+command="/root/bin/pia-wg.sh"
+
+CONFIGDIR="${CONFIGDIR:-/etc/pia-wg}"
+CONFIG="${CONFIG:-$CONFIGDIR/pia-wg.conf}"
+
+depend() {
+	need net sysfs
+	after modules
+	use logger
+}
+
+start_pre() {
+	if ! [ -e "$CONFIG" ]
+	then
+		echo "Please generate a config with pia-wg.sh and copy it to $CONFIG"
+		return 1
+	fi
+	if ! [ -w "$CONFIGDIR" ] || ! [ -d "$CONFIGDIR" ]
+	then
+		echo "$CONFIGDIR is not a writable directory"
+		return 1
+	fi
+	return 0
+}
+
+start() {
+	(
+		export CONFIGDIR="$CONFIGDIR"
+		export CONFIG="$CONFIG"
+		while ! "$command"
+		do
+			ewarn "Failed, retrying"
+			sleep 1
+		done
+		einfo "OK"
+	);
+	return 0
+}
+
+reload() {
+	start
+}
+
+restart() {
+	stop
+	start
+}
+
+stop() {
+	source "$CONFIG"
+	wg-quick down "$PIA_INTERFACE"
+}
