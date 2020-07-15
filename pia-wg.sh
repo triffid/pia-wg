@@ -329,6 +329,11 @@ then
 
 		# Specific to my setup
 		ip route add default table vpnonly dev "$PIA_INTERFACE"
+
+		# Note: unnecessary if Table != off above, but doesn't hurt.
+		# tripled because this listing appears to disappear sometimes
+		ip rule add to "$SERVER_IP" lookup china pref 10
+
 	fi
 else
 	echo ip rule add to "$SERVER_IP" lookup china pref 10
@@ -362,11 +367,18 @@ fi
 
 echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
 
+TRIES=0
 echo -n "Waiting for connection to stabilise..."
 while ! ping -n -c1 -w 5 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
-	sleep 0.1 # so we can catch ctrl+c
+	TRIES=$(( $TRIES + 1 ))
+	if [[ $TRIES -ge 20 ]]
+	then
+		echo "Connection failed to stabilise, try again"
+		exit 1
+	fi
+	sleep 0.5 # so we can catch ctrl+c
 done
 echo " OK"
 
