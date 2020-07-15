@@ -92,6 +92,11 @@ then
 	DATAFILE="$CONFIGDIR/data.json"
 fi
 
+if [ -z "$DATAFILE_NEW" ]
+then
+	DATAFILE_NEW="$CONFIGDIR/data_new.json"
+fi
+
 if [ -z "$REMOTEINFO" ]
 then
 	REMOTEINFO="$CONFIGDIR/remote.info"
@@ -136,27 +141,48 @@ ENDCONFIG
 fi
 
 # fetch data.json if missing
-if ! [ -r "$DATAFILE" ]
+# if ! [ -r "$DATAFILE" ]
+# then
+# 	echo "Fetching wireguard server list from PIA"
+# 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
+# 	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
+# 	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
+# 	then
+# 		echo "Bad serverlist retrieved to $DATAFILE.temp, exiting"
+# 		echo "You can try again if there was a transient error"
+# 		exit 1
+# 	else
+# 		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
+# 	fi
+# fi
+
+# fetch data-new.json if missing
+if ! [ -r "$DATAFILE_NEW" ]
 then
-	echo "Fetching wireguard server list from PIA"
+	echo "Fetching new generation wireguard server list from PIA"
 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
-	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
-	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
+	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
+	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
-		echo "Bad serverlist retrieved to $DATAFILE.temp, exiting"
+		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
 		echo "You can try again if there was a transient error"
 		exit 1
 	else
-		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
+		jq -cM '.regions | map_values(select(.servers.wg))' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
 
-if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
+if [ "$(jq -r ".[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
-	# echo "No exact match for location \"$LOC\" trying pattern"
-	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
-	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
+	LOC=$(jq -r '.[] | select(.id | test("^us")) | .id' "$DATAFILE_NEW" | shuf -n 1)
 fi
+
+# if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
+# then
+# 	# echo "No exact match for location \"$LOC\" trying pattern"
+# 	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
+# 	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
+# fi
 
 if ! [ -r "$PIA_CERT" ]
 then
@@ -164,11 +190,21 @@ then
 	curl 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
-if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
+# if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
+# then
+# 	echo "Location $LOC not found!"
+# 	echo "Options are:"
+# 	jq 'map_values(select(.wireguard)) | keys' "$DATAFILE"
+# 	echo
+# 	echo "Please edit $CONFIG and change your desired location, then try again"
+# 	exit 1
+# fi
+
+if [ "$(jq -r ".[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
-	jq 'map_values(select(.wireguard)) | keys' "$DATAFILE"
+	jq '.[] | .id' "$DATAFILE_NEW" | sort
 	echo
 	echo "Please edit $CONFIG and change your desired location, then try again"
 	exit 1
@@ -200,20 +236,31 @@ then
 	echo "$TOK" > "$TOKENFILE"
 fi
 
-WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
-WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
-WG_URL="$(jq -r ".$LOC.wireguard.host" "$DATAFILE")"
-WG_SERIAL="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
-WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
-WG_HOST="$(cut -d: -f1 <<< "$WG_URL")"
-WG_PORT="$(cut -d: -f2 <<< "$WG_URL")"
+# WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
+# WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
+# WG_URL="$(jq -r ".$LOC.wireguard.host" "$DATAFILE")"
+# WG_SERIAL="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
 
-if [ -z "$WG_URL" ]; then
+WG_NAME="$(jq -r ".[] | select(.id == \"$LOC\") | .name" "$DATAFILE_NEW")"
+WG_DNS="$(jq -r ".[] | select(.id == \"$LOC\") | .dns" "$DATAFILE_NEW")"
+
+WG_HOST="$(jq -r ".[] | select(.id == \"$LOC\") | .servers.wg[0].ip" "$DATAFILE_NEW")"
+WG_PORT=1337
+
+WG_SERIAL="$WG_DNS"
+
+WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
+# WG_HOST="$(cut -d: -f1 <<< "$WG_URL")"
+# WG_PORT="$(cut -d: -f2 <<< "$WG_URL")"
+
+
+if [ -z "$WG_HOST$WG_PORT" ]; then
   echo "no wg region, exiting"
   exit 1
 fi
 
 echo "Registering public key with $WG_NAME ($WG_HOST)"
+ip rule add to "$WG_HOST" lookup china pref 10
 
 if ! curl -GsS \
   --max-time 5 \
@@ -382,16 +429,32 @@ do
 done
 echo " OK"
 
-if find "$DATAFILE" -mtime -3 -exec false {} +
+# if find "$DATAFILE" -mtime -3 -exec false {} +
+# then
+# 	echo
+# 	echo "PIA endpoint cache is stale, fetching new list.."
+# 	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
+# 	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
+# 	then
+# 		echo "Bad serverlist retrieved to $DATAFILE.temp, ignoring"
+# 	else
+# 		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
+# 		echo "Success"
+# 	fi
+# fi
+
+if find "$DATAFILE_NEW" -mtime 3 -exec false {} +
 then
-	echo
-	echo "PIA endpoint cache is stale, fetching new list.."
-	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
-	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
+	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
+
+	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
+
+	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
-		echo "Bad serverlist retrieved to $DATAFILE.temp, ignoring"
+		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
+		echo "You can try again if there was a transient error"
+		exit 1
 	else
-		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
-		echo "Success"
+		jq -cM '.regions | map_values(select(.servers.wg))' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
