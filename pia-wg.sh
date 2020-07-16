@@ -443,7 +443,7 @@ echo " OK"
 # 	fi
 # fi
 
-if find "$DATAFILE_NEW" -mtime 3 -exec false {} +
+if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
@@ -458,3 +458,5 @@ then
 		jq -cM '.regions | map_values(select(.servers.wg))' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
+
+exit 0
