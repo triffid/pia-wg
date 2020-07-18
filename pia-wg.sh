@@ -168,13 +168,13 @@ then
 		echo "You can try again if there was a transient error"
 		exit 1
 	else
-		jq -cM '.regions | map_values(select(.servers.wg))' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
+		jq -cM '.' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
 
-if [ "$(jq -r ".[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
+if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
-	LOC=$(jq -r '.[] | select(.id | test("^us")) | .id' "$DATAFILE_NEW" | shuf -n 1)
+	LOC=$(jq -r '.regions | .[] | select(.id | test("^us")) | .id' "$DATAFILE_NEW" | shuf -n 1)
 fi
 
 # if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
@@ -200,7 +200,7 @@ fi
 # 	exit 1
 # fi
 
-if [ "$(jq -r ".[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
+if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
@@ -239,15 +239,15 @@ fi
 # WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
 # WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
 # WG_URL="$(jq -r ".$LOC.wireguard.host" "$DATAFILE")"
-# WG_SERIAL="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
+# WG_CN="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
 
-WG_NAME="$(jq -r ".[] | select(.id == \"$LOC\") | .name" "$DATAFILE_NEW")"
-WG_DNS="$(jq -r ".[] | select(.id == \"$LOC\") | .dns" "$DATAFILE_NEW")"
+WG_NAME="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .name" "$DATAFILE_NEW")"
+WG_DNS="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .dns" "$DATAFILE_NEW")"
 
-WG_HOST="$(jq -r ".[] | select(.id == \"$LOC\") | .servers.wg[0].ip" "$DATAFILE_NEW")"
-WG_PORT=1337
-
-WG_SERIAL="$WG_DNS"
+WG_HOST="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .servers.wg[0].ip" "$DATAFILE_NEW")"
+WG_CN="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .servers.wg[0].cn" "$DATAFILE_NEW")"
+# WG_PORT=1337
+WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
 
 WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 # WG_HOST="$(cut -d: -f1 <<< "$WG_URL")"
@@ -267,16 +267,29 @@ if ! curl -GsS \
   --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
   --data-urlencode "pt=$TOK" \
   --cacert "$PIA_CERT" \
-  --resolve "$WG_SERIAL:$WG_PORT:$WG_HOST" \
-  "https://$WG_SERIAL:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+  --resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
+  "https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp"
 then
-	echo "Failed to register key with $WG_SN ($WG_HOST)"
-	if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
+	echo "Registering with $WG_DNS failed, trying $WG_CN"
+	# fall back to trying 'cn' certificate if DNS fails
+	# /u/dean_oz reported that this works better for them at https://www.reddit.com/r/PrivateInternetAccess/comments/h9y4da/is_there_any_way_to_generate_wireguard_config/fyfqjf7/
+	# however in testing I find that the 'cn' certificate has no trust anchor, and curl won't accept it
+	if ! curl -GsS \
+	  --max-time 5 \
+	  --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+	  --data-urlencode "pt=$TOK" \
+	  --cacert "$PIA_CERT" \
+	  --resolve "$WG_CN:$WG_PORT:$WG_HOST" \
+	  "https://$WG_CN:$WG_PORT/addKey" > "$REMOTEINFO.temp"
 	then
-		echo "If you're trying to change hosts because your link has stopped working,"
-		echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
+		echo "Failed to register key with $WG_SN ($WG_HOST)"
+		if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
+		then
+			echo "If you're trying to change hosts because your link has stopped working,"
+			echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
+		fi
+		exit 1
 	fi
-	exit 1
 fi
 
 if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
