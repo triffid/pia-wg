@@ -34,13 +34,23 @@ fi
 
 if [ -z "$CONFIGDIR" ]
 then
-	CONFIGDIR="$HOME/.config/pia-wg"
+	if [ $EUID -eq 0 ]
+	then
+		CONFIGDIR="/var/cache/pia-wg"
+	else
+		CONFIGDIR="$HOME/.config/pia-wg"
+	fi
 	mkdir -p "$CONFIGDIR"
 fi
 
 if [ -z "$CONFIG" ]
 then
-	CONFIG="$CONFIGDIR/pia-wg.conf"
+	if [ $EUID -eq 0 ]
+	then
+		CONFIG="/etc/pia-wg/pia-wg.conf"
+	else
+		CONFIG="$CONFIGDIR/pia-wg.conf"
+	fi
 fi
 
 if [ -r "$CONFIG" ]
@@ -84,7 +94,7 @@ fi
 
 if [ -z "$TOKENFILE" ]
 then
-	TOKENFILE="$CONFIGDIR/.token"
+	TOKENFILE="$CONFIGDIR/token"
 fi
 
 if [ -z "$DATAFILE" ]
