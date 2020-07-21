@@ -182,9 +182,15 @@ then
 	fi
 fi
 
+if ! [ -r "$PIA_CERT" ]
+then
+	echo "Fetching PIA self-signed cert from github"
+	curl 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
+fi
+
 if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
-	LOC=$(jq -r '.regions | .[] | select(.id | test("^us")) | .id' "$DATAFILE_NEW" | shuf -n 1)
+	LOC=$(jq -r '.regions | .[] | select(.id | test("^'"$LOC"'")) | .id' "$DATAFILE_NEW" | shuf -n 1)
 fi
 
 # if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
@@ -193,12 +199,6 @@ fi
 # 	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
 # 	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
 # fi
-
-if ! [ -r "$PIA_CERT" ]
-then
-	echo "Fetching PIA self-signed cert from github"
-	curl 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
-fi
 
 # if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
 # then
@@ -214,7 +214,7 @@ if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == ""
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
-	jq '.[] | .id' "$DATAFILE_NEW" | sort
+	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
 	echo
 	echo "Please edit $CONFIG and change your desired location, then try again"
 	exit 1
@@ -478,7 +478,7 @@ then
 		echo "You can try again if there was a transient error"
 		exit 1
 	else
-		jq -cM '.regions | map_values(select(.servers.wg))' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
+		jq -cM '.' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
 

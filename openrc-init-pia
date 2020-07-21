@@ -2,12 +2,12 @@
 
 command="/root/bin/pia-wg.sh"
 
-CONFIGDIR="${CONFIGDIR:-/etc/pia-wg}"
-CONFIG="${CONFIG:-$CONFIGDIR/pia-wg.conf}"
+CONFIGDIR="${CONFIGDIR:-/var/cache/pia-wg}"
+CONFIG="${CONFIG:-/etc/pia-wg/pia-wg.conf}"
 
 depend() {
 	need net sysfs
-	after modules
+	after modules ip-rules
 	use logger
 }
 
@@ -50,5 +50,5 @@ restart() {
 
 stop() {
 	source "$CONFIG"
-	wg-quick down "$PIA_INTERFACE"
+	ip link del "$PIA_INTERFACE"
 }
