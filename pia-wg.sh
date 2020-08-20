@@ -214,7 +214,8 @@ if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == ""
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
-	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
+# 	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
+	( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
 	echo
 	echo "Please edit $CONFIG and change your desired location, then try again"
 	exit 1
@@ -357,12 +358,13 @@ then
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
-		ip rule add to "$SERVER_IP" lookup china pref 10
+# 		ip rule add to "$SERVER_IP" lookup china pref 10
+		ip rule add fwmark 51820 lookup china pref 10
 
 		if [ "$OLD_KEY" != "$SERVER_PUBLIC_KEY" ]
 		then
 			echo "    [Change Peer from $OLD_KEY to $SERVER_PUBLIC_KEY]"
-			wg set "$PIA_INTERFACE" private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
+			wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 			# remove old key
 			wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 		fi
@@ -381,18 +383,19 @@ then
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
-		ip rule add to "$SERVER_IP" lookup china pref 10
+# 		ip rule add to "$SERVER_IP" lookup china pref 10
+		ip rule add fwmark 51820 lookup china pref 10
 
 		# bring up wireguard interface
 # 		wg-quick up "$WGCONF"
 		ip link add "$PIA_INTERFACE" type wireguard || exit 1
 		ip link set dev "$PIA_INTERFACE" up || exit 1
-		wg set "$PIA_INTERFACE" private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
+		wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 		ip addr replace "$PEER_IP" dev "$PIA_INTERFACE" || exit 1
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# doubled because this listing appears to disappear sometimes
-		ip rule add to "$SERVER_IP" lookup china pref 10
+# 		ip rule add to "$SERVER_IP" lookup china pref 10
 
 		# Note: only if Table = off in wireguard config file above
 		ip route add default dev "$PIA_INTERFACE"
@@ -402,12 +405,15 @@ then
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# tripled because this listing appears to disappear sometimes
-		ip rule add to "$SERVER_IP" lookup china pref 10
+# 		ip rule add to "$SERVER_IP" lookup china pref 10
 
 	fi
 else
-	echo ip rule add to "$SERVER_IP" lookup china pref 10
-	sudo ip rule add to "$SERVER_IP" lookup china pref 10
+# 	echo ip rule add to "$SERVER_IP" lookup china pref 10
+# 	sudo ip rule add to "$SERVER_IP" lookup china pref 10
+
+	echo ip rule add fwmark 51820 lookup china pref 10
+	sudo ip rule add fwmark 51820 lookup china pref 10
 
 	if ! ip link list "$PIA_INTERFACE" > /dev/null
 	then
@@ -415,8 +421,8 @@ else
 		sudo ip link add "$PIA_INTERFACE" type wireguard
 	fi
 
-	echo wg set "$PIA_INTERFACE" private-key "$CLIENT_PRIVATE_KEY" peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
-	sudo wg set "$PIA_INTERFACE" private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+	echo wg set "$PIA_INTERFACE" fwmark 51820 private-key "$CLIENT_PRIVATE_KEY"         peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+	sudo wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
 
 	echo ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
 	sudo ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
@@ -430,16 +436,19 @@ else
 		echo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 
-		echo ip rule del to "$OLD_PEER_IP" lookup china
-		sudo ip rule del to "$OLD_PEER_IP" lookup china
+# 		echo ip rule del to "$OLD_PEER_IP" lookup china
+# 		sudo ip rule del to "$OLD_PEER_IP" lookup china
 	fi
+
+	echo ip route add default dev "$PIA_INTERFACE"
+	sudo ip route add default dev "$PIA_INTERFACE"
 fi
 
 echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
 
 TRIES=0
 echo -n "Waiting for connection to stabilise..."
-while ! ping -n -c1 -w 5 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
+while ! ping -n -c1 -w 5 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 	TRIES=$(( $TRIES + 1 ))
