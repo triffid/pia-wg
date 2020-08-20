@@ -5,6 +5,8 @@ command="/root/bin/pia-wg.sh"
 CONFIGDIR="${CONFIGDIR:-/var/cache/pia-wg}"
 CONFIG="${CONFIG:-/etc/pia-wg/pia-wg.conf}"
 
+extra_started_commands="reload"
+
 depend() {
 	need net sysfs
 	after modules ip-rules
@@ -29,7 +31,7 @@ start() {
 	(
 		export CONFIGDIR="$CONFIGDIR"
 		export CONFIG="$CONFIG"
-		while ! "$command"
+		while "$command" 2>&1 | tee /var/log/pia-wg.log && [ ${PIPESTATUS[0]} -ne 0 ]
 		do
 			ewarn "Failed, retrying"
 			sleep 1
