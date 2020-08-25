@@ -169,7 +169,7 @@ fi
 # fetch data-new.json if missing
 if ! [ -r "$DATAFILE_NEW" ]
 then
-	echo "Fetching new generation wireguard server list from PIA"
+	echo "Fetching new generation server list from PIA"
 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
 	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
@@ -461,25 +461,12 @@ do
 done
 echo " OK"
 
-# if find "$DATAFILE" -mtime -3 -exec false {} +
-# then
-# 	echo
-# 	echo "PIA endpoint cache is stale, fetching new list.."
-# 	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
-# 	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
-# 	then
-# 		echo "Bad serverlist retrieved to $DATAFILE.temp, ignoring"
-# 	else
-# 		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
-# 		echo "Success"
-# 	fi
-# fi
-
 if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
-	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
+	# curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
+	curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" || exit 1
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
