@@ -112,7 +112,7 @@ then
 	# Very strange - must connect via 10.0/8 private VPN link to the server's public IP - why?
 	# I tried SERVER_VIP (10.0/8 private IP) instead of SERVER_IP (public IP) but it won't connect
 	# It also won't connect if you try to connect from the internet, hence needing --interface "$PIA_INTERFACE"
-	PF_SIG="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode "token=$TOK" --resolve "$WG_DNS:19999:$SERVER_IP" "https://$WG_DNS:19999/getSignature" | tee "$PF_SIGFILE")"
+	PF_SIG="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode "token=$TOK" --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/getSignature" | tee "$PF_SIGFILE")"
 
 	PF_STATUS="$(jq -r .status <<< "$PF_SIG")"
 	if [ "$PF_STATUS" != "OK" ]
@@ -131,7 +131,7 @@ fi
 PF_GETSIGNATURE=$(jq -r .signature <<< "$PF_SIG")
 PF_PORT=$(jq -r .port <<< "$PF_PAYLOAD")
 
-PF_BIND="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode "payload=$PF_PAYLOAD_RAW" --data-urlencode "signature=$PF_GETSIGNATURE" --resolve "$WG_DNS:19999:$SERVER_IP" "https://$WG_DNS:19999/bindPort")"
+PF_BIND="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode "payload=$PF_PAYLOAD_RAW" --data-urlencode "signature=$PF_GETSIGNATURE" --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/bindPort")"
 
 PF_STATUS="$(jq -r .status <<< "$PF_BIND")"
 if [ "$PF_STATUS" != "OK" ]
@@ -141,10 +141,10 @@ then
 	exit 1
 fi
 
-( echo -n "Bind: "; jq -r .message <<< "$PF_BIND"; ) > /dev/stderr
+( echo -n "PIA Server->Bind: "; jq -r .message <<< "$PF_BIND"; ) > /dev/stderr
 
 echo > /dev/stderr
-echo "Bound port: " > /dev/stderr
+echo -n "Bound port: " > /dev/stderr
 echo "$PF_PORT"
 echo > /dev/stderr
 
