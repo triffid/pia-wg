@@ -135,7 +135,7 @@ then
 # your privateinternetaccess.com username (not needed if you already have an auth token)
 PIA_USERNAME="$PIA_USERNAME"
 # your privateinternetaccess.com password (not needed if you already have an auth token)
-PASS="$PASS"
+PASS='$PASS'
 
 # your desired endpoint location
 LOC="$LOC"
