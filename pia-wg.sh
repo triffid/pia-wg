@@ -120,11 +120,11 @@ fi
 
 # echo "$TOK"
 
-if [ -z "$TOK" ] && ([ -z "$USER" ] || [ -z "$PASS" ])
+if [ -z "$TOK" ] && ([ -z "$PIA_USERNAME" ] || [ -z "$PASS" ])
 then
-	if [ -z "$USER" ]
+	if [ -z "$PIA_USERNAME" ]
 	then
-		read -p "Please enter your privateinternetaccess.com username: " USER
+		read -p "Please enter your privateinternetaccess.com username: " PIA_USERNAME
 	fi
 	if [ -z "$PASS" ]
 	then
@@ -133,7 +133,7 @@ then
 	fi
 	cat <<ENDCONFIG > "$CONFIG"
 # your privateinternetaccess.com username (not needed if you already have an auth token)
-USER="$USER"
+PIA_USERNAME="$PIA_USERNAME"
 # your privateinternetaccess.com password (not needed if you already have an auth token)
 PASS="$PASS"
 
@@ -227,11 +227,11 @@ then
 	then
 		echo "A new auth token is required, and you have not saved your password."
 		echo "Your password will NOT be saved if you enter it now."
-		read -p "Please enter your privateinternetaccess.com password for $USER: " -s PASS
+		read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
 	fi
 	TOK=$(curl -X POST \
 	-H "Content-Type: application/json" \
-	-d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" \
+	-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
 	"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
 
 	# echo "got token: $TOK"
