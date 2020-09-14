@@ -36,4 +36,14 @@ then
 	source "$CONFIG"
 fi
 
-jq '.regions | .[] | select(.servers.wg[0].ip == "'"$(jq -r .server_ip "$REMOTEINFO")"'")' "$DATAFILE_NEW"
+SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
+
+if [ -z "$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")" ]
+then
+	SERVER_IP_S="$(cut -d. -f1-3 <<< $SERVER_IP)"
+	jq '.regions | .[] | select(.servers.wg[0].ip | test("^'"$SERVER_IP_S"'"))' "$DATAFILE_NEW"
+
+	echo "Note: Inexact match for $SERVER_IP_S.* ($SERVER_IP not found)" >/dev/stderr
+else
+	jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW"
+fi

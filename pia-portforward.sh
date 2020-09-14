@@ -69,7 +69,25 @@ then
 	PF_BINDFILE="$CONFIGDIR/pf-bind"
 fi
 
-WG_INFO="$(jq -r '.regions | .[] | select(.servers.wg[0].ip == "'"$(jq -r .server_ip "$REMOTEINFO")"'")' "$DATAFILE_NEW")"
+PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
+SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
+SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
+SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
+SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
+
+WG_INFO="$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")"
+
+if [ -z "$WG_INFO" ]
+then
+	SERVER_IP_S="$(cut -d. -f1-3 <<< $SERVER_IP)"
+	WG_INFO="$(jq '.regions | .[] | select(.servers.wg[0].ip | test("^'"$SERVER_IP_S"'"))' "$DATAFILE_NEW")"
+fi
+
+if [ -z "$WG_INFO" ]
+then
+	echo "Couldn't determine server information even with fuzzy search, is your $DATAFILE_NEW ok?" >/dev/stderr
+	exit 1
+fi
 
 if [ "$(jq -r .port_forward <<< "$WG_INFO")" != true ]
 then
@@ -83,12 +101,6 @@ WG_DNS="$(jq -r .dns <<< "$WG_INFO")"
 
 WG_HOST="$(jq -r '.servers.wg[0].ip' <<< "$WG_INFO")"
 WG_CN="$(jq -r '.servers.wg[0].cn' <<< "$WG_INFO")"
-
-PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
-SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
-SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
-SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
-SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
 # sections of the below adapted from Threarah's work at
 # https://github.com/thrnz/docker-wireguard-pia/blob/003f79f3b6ba24387e10d7de63ec62e98e6518a5/run#L233-L270 with permission
