@@ -23,10 +23,17 @@ then
 	EXIT=1
 fi
 
+if ! which curl &>/dev/null
+then
+	echo "The 'curl' utility is required"
+	echo "    Most package managers should have a 'curl' package available"
+	EXIT=1
+fi
+
 if ! which wg &>/dev/null
 then
-	echo "The 'wg' utility from wireguard/wireguard-tools is required"
-	echo "    Most package managers should have 'wireguard' or 'wireguard-tools' packages available"
+	echo "The 'wg' utility from wireguard-tools is required"
+	echo "    Most package managers should have a 'wireguard-tools' package available"
 	EXIT=1
 fi
 
@@ -146,6 +153,9 @@ LOC="$LOC"
 # wireguard client-side private key (new key generated every invocation if not specified)
 CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
 
+# if PORTFORWARD is set, pia-wg will only connect to port-forward capable servers, and will invoke pia-portforward.sh after connection
+# PORTFORWARD="literally anything"
+
 ENDCONFIG
 	echo "Config saved"
 fi
@@ -171,7 +181,7 @@ if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
-	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
+	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' -o "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
@@ -190,33 +200,16 @@ fi
 
 if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
-	LOC=$(jq -r '.regions | .[] | select(.id | test("^'"$LOC"'")) | .id' "$DATAFILE_NEW" | shuf -n 1)
+	LOC=$(jq -r '.regions | .[] | select(.id | test("^'"$LOC"'")) '${PORTFORWARD:+'| select(.port_forward) '}'| .id' "$DATAFILE_NEW" | shuf -n 1)
 fi
-
-# if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
-# then
-# 	# echo "No exact match for location \"$LOC\" trying pattern"
-# 	# from https://unix.stackexchange.com/questions/443884/match-keys-with-regex-in-jq/443927#443927
-# 	LOC=$(jq 'with_entries(if (.key|test("^'"$LOC"'")) then ( {key: .key, value: .value } ) else empty end ) | keys' "$DATAFILE" | grep ^\  | cut -d\" -f2 | shuf -n 1)
-# fi
-
-# if [ "$(jq -r ".$LOC.wireguard" "$DATAFILE")" == "null" ]
-# then
-# 	echo "Location $LOC not found!"
-# 	echo "Options are:"
-# 	jq 'map_values(select(.wireguard)) | keys' "$DATAFILE"
-# 	echo
-# 	echo "Please edit $CONFIG and change your desired location, then try again"
-# 	exit 1
-# fi
 
 if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 then
 	echo "Location $LOC not found!"
 	echo "Options are:"
 # 	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
-	( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
-	echo
+	( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
+	echo "${PORTFORWARD:+'Note: only port-forwarding regions displayed'}"
 	echo "Please edit $CONFIG and change your desired location, then try again"
 	exit 1
 fi
@@ -476,6 +469,16 @@ then
 	else
 		jq -cM '.' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
+fi
+
+if [ -n "$PORTFORWARD" ]
+then
+	echo "Requesting forwarded port..."
+	pia-portforward.sh
+	echo "Note: pia-portforward.sh should be called every ~5 minutes to maintain your forward."
+	echo "You could try:"
+	echo "    while sleep 5m; do pia-portforward.sh; done"
+	echo "or alternately add a cronjob with crontab -e"
 fi
 
 exit 0
