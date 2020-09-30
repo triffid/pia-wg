@@ -474,7 +474,18 @@ fi
 if [ -n "$PORTFORWARD" ]
 then
 	echo "Requesting forwarded port..."
-	pia-portforward.sh
+	if which pia-portforward.sh &>/dev/null
+	then
+		pia-portforward.sh
+	else
+		if [ -r "${0%/*}/pia-portforward.sh" ]
+		then
+			"${0%/*}/pia-portforward.sh"
+		else
+			echo "pia-portforward.sh couldn't be found!"
+			exit 1
+		fi
+	fi
 	echo "Note: pia-portforward.sh should be called every ~5 minutes to maintain your forward."
 	echo "You could try:"
 	echo "    while sleep 5m; do pia-portforward.sh; done"
