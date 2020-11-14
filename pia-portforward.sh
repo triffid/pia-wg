@@ -119,7 +119,6 @@ fi
 if [ $(( "$PF_TOKEN_EXPIRY" - $(date -u +%s) )) -le 900 ]
 then
 	echo "Signature stale, refetching"
-	exit 1
 
 	# Very strange - must connect via 10.0/8 private VPN link to the server's public IP - why?
 	# I tried SERVER_VIP (10.0/8 private IP) instead of SERVER_IP (public IP) but it won't connect
@@ -137,7 +136,7 @@ then
 	PF_PAYLOAD_RAW=$(jq -r .payload <<< "$PF_SIG")
 	PF_PAYLOAD=$(base64 -d <<< "$PF_PAYLOAD_RAW")
 	PF_TOKEN_EXPIRY_RAW=$(jq -r .expires_at <<< "$PF_PAYLOAD")
-	PF_TOKEN_EXPIRY=$(date -D %Y-%m-%dT%H:%M:%S --date="$PF_TOKEN_EXPIRY_RAW" +%s)
+	PF_TOKEN_EXPIRY=$(date +%Y-%m-%dT%H:%M:%S --date="$PF_TOKEN_EXPIRY_RAW" +%s)
 fi
 
 PF_GETSIGNATURE=$(jq -r .signature <<< "$PF_SIG")
@@ -166,7 +165,8 @@ echo > /dev/stderr
 #                                                                             #
 ###############################################################################
 
-transmission-remote -p "$PF_PORT" -pt
+echo "To test if your port has successfully been forwarded, execute:"
+echo "transmission-remote -p "$PF_PORT" -pt"
 
 ###############################################################################
 #                                                                             #
