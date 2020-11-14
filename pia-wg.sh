@@ -181,7 +181,7 @@ if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
-	curl 'https://serverlist.piaservers.net/vpninfo/servers/new' -o "$DATAFILE_NEW.temp" || exit 1
+	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' -o "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
@@ -195,7 +195,7 @@ fi
 if ! [ -r "$PIA_CERT" ]
 then
 	echo "Fetching PIA self-signed cert from github"
-	curl 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
+	curl --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
 if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
@@ -372,6 +372,12 @@ then
 			# remove old route
 			ip rule del to "$OLD_PEER_IP" lookup china 2>/dev/null
 		fi
+
+		# Note: only if Table = off in wireguard config file above
+		ip route add default dev "$PIA_INTERFACE"
+
+		# Specific to my setup
+		ip route add default table vpnonly dev "$PIA_INTERFACE"
 	else
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
@@ -458,8 +464,11 @@ if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
+	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4"
 	# curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
-	curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" || exit 1
+	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" ||
+	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" ||
+	exit 0
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
