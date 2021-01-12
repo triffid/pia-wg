@@ -31,7 +31,7 @@ start() {
 	(
 		export CONFIGDIR="$CONFIGDIR"
 		export CONFIG="$CONFIG"
-		while "$command" 2>&1 | tee /var/log/pia-wg.log && [ ${PIPESTATUS[0]} -ne 0 ]
+		while "$command" "$@" 2>&1 | tee /var/log/pia-wg.log && [ ${PIPESTATUS[0]} -ne 0 ]
 		do
 			ewarn "Failed, retrying"
 			sleep 1
@@ -42,7 +42,7 @@ start() {
 }
 
 reload() {
-	start
+	start -n
 }
 
 restart() {

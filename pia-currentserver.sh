@@ -36,6 +36,17 @@ then
 	source "$CONFIG"
 fi
 
+if [ -z "$CONNCACHE" ]
+then
+	CONNCACHE="$CONFIGDIR/cache.json"
+fi
+
+if [ -r "$CONNCACHE" ]
+then
+	jq . "$CONNCACHE"
+	exit 0
+fi
+
 SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
 
 if [ -z "$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")" ]

@@ -84,8 +84,8 @@ fi
 
 if [ -z "$LOC" ]
 then
-	echo "Setting default location: US (any, using pattern match)"
-	LOC="us"
+	echo "Setting default location: any"
+	LOC="."
 fi
 
 if [ -z "$PIA_INTERFACE" ]
@@ -117,6 +117,11 @@ fi
 if [ -z "$REMOTEINFO" ]
 then
 	REMOTEINFO="$CONFIGDIR/remote.info"
+fi
+
+if [ -z "$CONNCACHE" ]
+then
+	CONNCACHE="$CONFIGDIR/cache.json"
 fi
 
 # get token
@@ -198,72 +203,85 @@ then
 	curl --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
-if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
+if [ "$1" == "-n" ]
 then
-	LOC=$(jq -r '.regions | .[] | select(.id | test("^'"$LOC"'")) '${PORTFORWARD:+'| select(.port_forward) '}'| .id' "$DATAFILE_NEW" | shuf -n 1)
+	rm "$CONNCACHE"
 fi
 
-if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
+if [ -r "$CONNCACHE" ]
 then
-	echo "Location $LOC not found!"
-	echo "Options are:"
-# 	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
-	( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
-	echo "${PORTFORWARD:+'Note: only port-forwarding regions displayed'}"
-	echo "Please edit $CONFIG and change your desired location, then try again"
-	exit 1
+	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
+	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
+
+	WG_HOST="$(jq -r ".servers.wg[0].ip"     "$CONNCACHE")"
+	WG_CN="$(jq -r ".servers.wg[0].cn"     "$CONNCACHE")"
+	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
+
+	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 fi
 
-if [ -z "$TOK" ]
+if [ -z "$WG_HOST" ] || [ -z "$WG_CN" ] || [ -z "$WG_PORT" ]
 then
-	if [ -z "$PASS" ]
+	if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
 	then
-		echo "A new auth token is required, and you have not saved your password."
-		echo "Your password will NOT be saved if you enter it now."
-		read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
+		LOC=$(jq -r '.regions | .[] | select(.id | test("^'"$LOC"'")) '${PORTFORWARD:+'| select(.port_forward) '}'| .id' "$DATAFILE_NEW" | shuf -n 1)
 	fi
-	TOK=$(curl -X POST \
-	-H "Content-Type: application/json" \
-	-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
-	"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
 
-	# echo "got token: $TOK"
-
-	if [ -z "$TOK" ]; then
-		echo "Failed to authenticate with privateinternetaccess"
-		echo "Check your user/pass and try again"
+	if [ "$(jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")" == "" ]
+	then
+		echo "Location $LOC not found!"
+		echo "Options are:"
+	# 	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
+		( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
+		echo "${PORTFORWARD:+'Note: only port-forwarding regions displayed'}"
+		echo "Please edit $CONFIG and change your desired location, then try again"
 		exit 1
 	fi
 
-	touch "$TOKENFILE"
-	chmod 600 "$TOKENFILE"
-	echo "$TOK" > "$TOKENFILE"
+	if [ -z "$TOK" ]
+	then
+		if [ -z "$PASS" ]
+		then
+			echo "A new auth token is required, and you have not saved your password."
+			echo "Your password will NOT be saved if you enter it now."
+			read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
+		fi
+		TOK=$(curl -X POST \
+		-H "Content-Type: application/json" \
+		-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
+		"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
+
+		# echo "got token: $TOK"
+
+		if [ -z "$TOK" ]; then
+			echo "Failed to authenticate with privateinternetaccess"
+			echo "Check your user/pass and try again"
+			exit 1
+		fi
+
+		touch "$TOKENFILE"
+		chmod 600 "$TOKENFILE"
+		echo "$TOK" > "$TOKENFILE"
+	fi
+
+	jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW" > "$CONNCACHE"
+
+	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
+	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
+
+	WG_HOST="$(jq -r ".servers.wg[0].ip"     "$CONNCACHE")"
+	WG_CN="$(jq -r ".servers.wg[0].cn"     "$CONNCACHE")"
+	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
+
+	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 fi
-
-# WG_NAME="$(jq -r ".$LOC.name" "$DATAFILE")"
-# WG_DNS="$(jq -r ".$LOC.dns" "$DATAFILE")"
-# WG_URL="$(jq -r ".$LOC.wireguard.host" "$DATAFILE")"
-# WG_CN="$(jq -r ".$LOC.wireguard.serial" "$DATAFILE")"
-
-WG_NAME="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .name" "$DATAFILE_NEW")"
-WG_DNS="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .dns" "$DATAFILE_NEW")"
-
-WG_HOST="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .servers.wg[0].ip" "$DATAFILE_NEW")"
-WG_CN="$(jq -r ".regions | .[] | select(.id == \"$LOC\") | .servers.wg[0].cn" "$DATAFILE_NEW")"
-# WG_PORT=1337
-WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
-
-WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
-# WG_HOST="$(cut -d: -f1 <<< "$WG_URL")"
-# WG_PORT="$(cut -d: -f2 <<< "$WG_URL")"
-
 
 if [ -z "$WG_HOST$WG_PORT" ]; then
   echo "no wg region, exiting"
   exit 1
 fi
 
-echo "Registering public key with $WG_NAME ($WG_HOST)"
+echo "Registering public key with "$'\e[1m'"$WG_NAME"$'\e[0m (\e[1m'"$WG_HOST"$'\e[0m)'
 ip rule add to "$WG_HOST" lookup china pref 10
 
 if ! curl -GsS \
