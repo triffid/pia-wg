@@ -52,5 +52,5 @@ restart() {
 
 stop() {
 	source "$CONFIG"
-	ip link del "$PIA_INTERFACE"
+	ip link del "${PIA_INTERFACE:-pia}"
 }
