@@ -69,13 +69,35 @@ then
 	PF_BINDFILE="$CONFIGDIR/pf-bind"
 fi
 
+if [ -z "$CONNCACHE" ]
+then
+	CONNCACHE="$CONFIGDIR/cache.json"
+fi
+
+if [ -r "$CONNCACHE" ]
+then
+	WG_INFO="$(jq -r . "$CONNCACHE")"
+
+	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
+	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
+
+	WG_HOST="$(jq -r ".servers.wg[0].ip"     "$CONNCACHE")"
+	WG_CN="$(jq -r ".servers.wg[0].cn"     "$CONNCACHE")"
+	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
+
+	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
+fi
+
 PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
 SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
 SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
 SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
 SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
-WG_INFO="$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")"
+if [ -z "$WG_INFO" ]
+then
+	WG_INFO="$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")"
+fi
 
 if [ -z "$WG_INFO" ]
 then
