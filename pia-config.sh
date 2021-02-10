@@ -1,5 +1,12 @@
 #!/bin/bash
 
+if [ -t 1 ]
+then
+	BOLD=$'\e[1m'
+	NORMAL=$'\e[0m'
+fi
+TAB=$'\t'
+
 if [ -z "$CONFIGDIR" ]
 then
 	if [ $EUID -eq 0 ]
@@ -45,13 +52,13 @@ fi
 
 if [ -z "$LOC" ]
 then
-	echo "Setting default location: any"
+	echo "Setting default location: ${BOLD}any${NORMAL}"
 	LOC="."
 fi
 
 if [ -z "$PIA_INTERFACE" ]
 then
-	echo "Setting default wireguard interface name: pia"
+	echo "Setting default wireguard interface name: ${BOLD}pia${NORMAL}"
 	PIA_INTERFACE="pia"
 fi
 

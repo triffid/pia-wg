@@ -149,7 +149,11 @@ then
 		echo "Location $LOC not found!"
 		echo "Options are:"
 	# 	jq '.regions | .[] | .id' "$DATAFILE_NEW" | sort | sed -e 's/^/ * /'
-		( echo $'\e[1mLocation\e[1m\tRegion\tPort Forward\tGeolocated'; echo $'\e[0m----------------\e[0m\t------------------\t------------\t----------'; jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"; ) | column -t -s $'\t'
+		(
+			echo "${BOLD}Location${TAB}Region${TAB}Port Forward${TAB}Geolocated${NORMAL}"
+			echo "----------------${TAB}------------------${TAB}------------${TAB}----------"
+			jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"
+		) | column -t -s "${TAB}"
 		echo "${PORTFORWARD:+'Note: only port-forwarding regions displayed'}"
 		echo "Please edit $CONFIG and change your desired location, then try again"
 		exit 1
@@ -198,7 +202,7 @@ if [ -z "$WG_HOST$WG_PORT" ]; then
   exit 1
 fi
 
-echo "Registering public key with "$'\e[1m'"$WG_NAME"$'\e[0m (\e[1m'"$WG_HOST"$'\e[0m)'
+echo "Registering public key with ${BOLD}$WG_NAME $WG_HOST${NORMAL}"
 ip rule add to "$WG_HOST" lookup china pref 10
 
 if ! curl -GsS \
@@ -225,7 +229,7 @@ then
 		if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
 		then
 			echo "If you're trying to change hosts because your link has stopped working,"
-			echo "  you may need to "$'\x1b[1m'"ip link del dev $PIA_INTERFACE"$'\x1b[0m'" and try this script again"
+			echo "  you may need to ${BOLD}ip link del dev $PIA_INTERFACE${NORMAL} and try this script again"
 		fi
 		exit 1
 	fi
@@ -283,7 +287,9 @@ then
 		sh <<< "$ROUTES_ADD"
 	fi
 	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
-	ip route show table $HARDWARE_ROUTE_TABLE | sed -e $'s/^/\t/'
+	ip route show table $HARDWARE_ROUTE_TABLE | sed -e "s/^/${TAB}/"
+	echo
+	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
 fi
 
 # echo "Bringing up wireguard interface $PIA_INTERFACE... "
@@ -297,7 +303,7 @@ then
 
 		OLD_PEER_IP="$(ip -j addr show dev pia | jq -r '.[].addr_info[].local')"
 		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2-))"
-		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
+		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut "-d${TAB}" -f2 | cut -d: -f1)"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
@@ -366,7 +372,7 @@ else
 	then
 		OLD_PEER_IP="$(ip -j addr show dev pia | jq '.[].addr_info[].local')"
 		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2))"
-		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut -d$'\t' -f2 | cut -d: -f1)"
+		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut "-d${TAB}" -f2 | cut -d: -f1)"
 
 		echo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
