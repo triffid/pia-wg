@@ -1,55 +1,23 @@
 #!/bin/bash
 
-if [ -z "$CONFIGDIR" ]
+PIA_CONFIG="$(dirname "$(realpath "$(which "$0")")")/pia-config.sh"
+
+if ! [ -r "$PIA_CONFIG" ]
 then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIGDIR="/var/cache/pia-wg"
-	else
-		CONFIGDIR="$HOME/.config/pia-wg"
-	fi
-	mkdir -p "$CONFIGDIR"
+	echo "Can't find pia-config.sh at $PIA_CONFIG - if you've symlinked pia-wg.sh, please also symlink that file"
+	EXIT=1
 fi
 
-if [ -z "$CONFIG" ]
-then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIG="/etc/pia-wg/pia-wg.conf"
-	else
-		CONFIG="$CONFIGDIR/pia-wg.conf"
-	fi
-fi
+[ -n "$EXIT" ] && exit 1
 
-if [ -z "$DATAFILE_NEW" ]
-then
-	DATAFILE_NEW="$CONFIGDIR/data_new.json"
-fi
+source "$PIA_CONFIG"
 
-if [ -z "$REMOTEINFO" ]
-then
-	REMOTEINFO="$CONFIGDIR/remote.info"
-fi
-
-if [ -r "$CONFIG" ]
-then
-	source "$CONFIG"
-fi
-
-if [ -z "$CONNCACHE" ]
-then
-	CONNCACHE="$CONFIGDIR/cache.json"
-fi
+SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
 
 if [ -r "$CONNCACHE" ]
 then
 	jq . "$CONNCACHE"
-	exit 0
-fi
-
-SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
-
-if [ -z "$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")" ]
+elif [ -z "$(jq '.regions | .[] | select(.servers.wg[0].ip == "'"$SERVER_IP"'")' "$DATAFILE_NEW")" ]
 then
 	SERVER_IP_S="$(cut -d. -f1-3 <<< $SERVER_IP)"
 	jq '.regions | .[] | select(.servers.wg[0].ip | test("^'"$SERVER_IP_S"'"))' "$DATAFILE_NEW"

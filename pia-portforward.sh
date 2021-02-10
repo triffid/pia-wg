@@ -1,98 +1,23 @@
 #!/bin/bash
 
-if [ -z "$CONFIGDIR" ]
+PIA_CONFIG="$(dirname "$(realpath "$(which "$0")")")/pia-config.sh"
+
+if ! [ -r "$PIA_CONFIG" ]
 then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIGDIR="/var/cache/pia-wg"
-	else
-		CONFIGDIR="$HOME/.config/pia-wg"
-	fi
-	mkdir -p "$CONFIGDIR"
+	echo "Can't find pia-config.sh at $PIA_CONFIG - if you've symlinked pia-wg.sh, please also symlink that file"
+	EXIT=1
 fi
 
-if [ -z "$CONFIG" ]
-then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIG="/etc/pia-wg/pia-wg.conf"
-	else
-		CONFIG="$CONFIGDIR/pia-wg.conf"
-	fi
-fi
+[ -n "$EXIT" ] && exit 1
 
-if [ -r "$CONFIG" ]
-then
-	source "$CONFIG"
-fi
-
-if [ -z "$DATAFILE_NEW" ]
-then
-	DATAFILE_NEW="$CONFIGDIR/data_new.json"
-fi
-
-if [ -z "$REMOTEINFO" ]
-then
-	REMOTEINFO="$CONFIGDIR/remote.info"
-fi
-
-if [ -z "$TOKENFILE" ]
-then
-	TOKENFILE="$CONFIGDIR/token"
-fi
-
-if [ -z "$PIA_CERT" ]
-then
-	PIA_CERT="$CONFIGDIR/rsa_4096.crt"
-fi
-
-if [ -z "$TOK" ] && [ -r "$TOKENFILE" ]
-then
-	TOK="$(< "$TOKENFILE")"
-else
-	echo "Can't find token $TOKENFILE"
-	exit 1
-fi
-
-if [ -z "$PIA_INTERFACE" ]
-then
-	PIA_INTERFACE="pia"
-fi
-
-if [ -z "$PF_SIGFILE" ]
-then
-	PF_SIGFILE="$CONFIGDIR/pf-sig"
-fi
-
-if [ -z "$PF_BINDFILE" ]
-then
-	PF_BINDFILE="$CONFIGDIR/pf-bind"
-fi
-
-if [ -z "$CONNCACHE" ]
-then
-	CONNCACHE="$CONFIGDIR/cache.json"
-fi
+source "$PIA_CONFIG"
 
 if [ -r "$CONNCACHE" ]
 then
 	WG_INFO="$(jq -r . "$CONNCACHE")"
-
-	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
-	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
-
-	WG_HOST="$(jq -r ".servers.wg[0].ip"     "$CONNCACHE")"
-	WG_CN="$(jq -r ".servers.wg[0].cn"     "$CONNCACHE")"
-	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
-
-	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 fi
 
-PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
-SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
 SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
-SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
-SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
 if [ -z "$WG_INFO" ]
 then

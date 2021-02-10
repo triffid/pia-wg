@@ -37,100 +37,17 @@ then
 	EXIT=1
 fi
 
+PIA_CONFIG="$(dirname "$(realpath "$(which "$0")")")/pia-config.sh"
+
+if ! [ -r "$PIA_CONFIG" ]
+then
+	echo "Can't find pia-config.sh at $PIA_CONFIG - if you've symlinked pia-wg.sh, please also symlink that file"
+	EXIT=1
+fi
+
 [ -n "$EXIT" ] && exit 1
 
-if [ -z "$CONFIGDIR" ]
-then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIGDIR="/var/cache/pia-wg"
-	else
-		CONFIGDIR="$HOME/.config/pia-wg"
-	fi
-	mkdir -p "$CONFIGDIR"
-fi
-
-if [ -z "$CONFIG" ]
-then
-	if [ $EUID -eq 0 ]
-	then
-		CONFIG="/etc/pia-wg/pia-wg.conf"
-	else
-		CONFIG="$CONFIGDIR/pia-wg.conf"
-	fi
-fi
-
-if [ -r "$CONFIG" ]
-then
-	source "$CONFIG"
-fi
-
-if [ -z "$CLIENT_PRIVATE_KEY" ]
-then
-	echo "Generating new private key"
-	CLIENT_PRIVATE_KEY="$(wg genkey)"
-fi
-
-if [ -z "$CLIENT_PUBLIC_KEY" ]
-then
-	CLIENT_PUBLIC_KEY=$(wg pubkey <<< "$CLIENT_PRIVATE_KEY")
-fi
-
-if [ -z "$CLIENT_PUBLIC_KEY" ]
-then
-	echo "Failed to generate client public key, check your config!"
-	exit 1
-fi
-
-if [ -z "$LOC" ]
-then
-	echo "Setting default location: any"
-	LOC="."
-fi
-
-if [ -z "$PIA_INTERFACE" ]
-then
-	echo "Setting default wireguard interface name: pia"
-	PIA_INTERFACE="pia"
-fi
-
-if [ -z "$PIA_CERT" ]
-then
-	PIA_CERT="$CONFIGDIR/rsa_4096.crt"
-fi
-
-if [ -z "$TOKENFILE" ]
-then
-	TOKENFILE="$CONFIGDIR/token"
-fi
-
-if [ -z "$DATAFILE" ]
-then
-	DATAFILE="$CONFIGDIR/data.json"
-fi
-
-if [ -z "$DATAFILE_NEW" ]
-then
-	DATAFILE_NEW="$CONFIGDIR/data_new.json"
-fi
-
-if [ -z "$REMOTEINFO" ]
-then
-	REMOTEINFO="$CONFIGDIR/remote.info"
-fi
-
-if [ -z "$CONNCACHE" ]
-then
-	CONNCACHE="$CONFIGDIR/cache.json"
-fi
-
-# get token
-if [ -z "$TOK" ] && [ -r "$TOKENFILE" ]
-then
-	TOK=$(< "$TOKENFILE")
-fi
-
-# echo "$TOK"
+source "$PIA_CONFIG"
 
 if [ -z "$TOK" ] && ([ -z "$PIA_USERNAME" ] || [ -z "$PASS" ])
 then
@@ -295,7 +212,7 @@ then
 	echo "Registering with $WG_DNS failed, trying $WG_CN"
 	# fall back to trying 'cn' certificate if DNS fails
 	# /u/dean_oz reported that this works better for them at https://www.reddit.com/r/PrivateInternetAccess/comments/h9y4da/is_there_any_way_to_generate_wireguard_config/fyfqjf7/
-	# however in testing I find that the 'cn' certificate has no trust anchor, and curl won't accept it
+	# in testing I find that sometimes one works, sometimes the other works
 	if ! curl -GsS \
 	  --max-time 5 \
 	  --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
@@ -330,29 +247,44 @@ SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
 SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
 SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
-if [ -z "$WGCONF" ]
-then
-	WGCONF="$CONFIGDIR/${PIA_INTERFACE}.conf"
-fi
-
 # echo "Generating $WGCONF"
 # echo
 
-cat > "$WGCONF" <<ENDWG
-[Interface]
-PrivateKey = $CLIENT_PRIVATE_KEY
-Address    = $PEER_IP
-Table      = off
-DNS        = $(jq -r '.dns_servers[0:2]' "$REMOTEINFO" | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
-
-[Peer]
-PublicKey  = $SERVER_PUBLIC_KEY
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint   = $SERVER_IP:$SERVER_PORT
-ENDWG
+# cat > "$WGCONF" <<ENDWG
+# [Interface]
+# PrivateKey = $CLIENT_PRIVATE_KEY
+# Address    = $PEER_IP
+# Table      = off
+# DNS        = $(jq -r '.dns_servers[0:2]' "$REMOTEINFO" | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
+#
+# [Peer]
+# PublicKey  = $SERVER_PUBLIC_KEY
+# AllowedIPs = 0.0.0.0/0, ::/0
+# Endpoint   = $SERVER_IP:$SERVER_PORT
+# ENDWG
 
 # echo
 # echo "OK"
+
+if ! ip route show table $HARDWARE_ROUTE_TABLE 2>/dev/null | grep -q .
+then
+	ROUTES_ADD=$(
+		for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
+		do
+			ip route show | grep "dev $IF" | sed -e 's/linkdown//' | sed -e "s/^/ip route add table $HARDWARE_ROUTE_TABLE /"
+		done
+	)
+	if [ "$EUID" -eq 0 ]
+	then
+		echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
+		echo sudo sh '<<<' "$ROUTES_ADD"
+		sudo sh <<< "$ROUTES_ADD"
+	else
+		sh <<< "$ROUTES_ADD"
+	fi
+	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
+	ip route show table $HARDWARE_ROUTE_TABLE | sed -e $'s/^/\t/'
+fi
 
 # echo "Bringing up wireguard interface $PIA_INTERFACE... "
 if [ "$EUID" -eq 0 ]
@@ -369,8 +301,7 @@ then
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
-# 		ip rule add to "$SERVER_IP" lookup china pref 10
-		ip rule add fwmark 51820 lookup china pref 10
+		ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
 
 		if [ "$OLD_KEY" != "$SERVER_PUBLIC_KEY" ]
 		then
@@ -388,49 +319,36 @@ then
 			ip addr del "$OLD_PEER_IP/32" dev "$PIA_INTERFACE"
 
 			# remove old route
-			ip rule del to "$OLD_PEER_IP" lookup china 2>/dev/null
+			ip rule del to "$OLD_PEER_IP" lookup $HARDWARE_ROUTE_TABLE 2>/dev/null
 		fi
 
 		# Note: only if Table = off in wireguard config file above
 		ip route add default dev "$PIA_INTERFACE"
 
 		# Specific to my setup
-		ip route add default table vpnonly dev "$PIA_INTERFACE"
+		ip route add default table $VPNONLY_ROUTE_TABLE dev "$PIA_INTERFACE"
 	else
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
-# 		ip rule add to "$SERVER_IP" lookup china pref 10
-		ip rule add fwmark 51820 lookup china pref 10
+		ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
 
 		# bring up wireguard interface
-# 		wg-quick up "$WGCONF"
 		ip link add "$PIA_INTERFACE" type wireguard || exit 1
 		ip link set dev "$PIA_INTERFACE" up || exit 1
 		wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 		ip addr replace "$PEER_IP" dev "$PIA_INTERFACE" || exit 1
 
-		# Note: unnecessary if Table != off above, but doesn't hurt.
-		# doubled because this listing appears to disappear sometimes
-# 		ip rule add to "$SERVER_IP" lookup china pref 10
-
 		# Note: only if Table = off in wireguard config file above
 		ip route add default dev "$PIA_INTERFACE"
 
 		# Specific to my setup
-		ip route add default table vpnonly dev "$PIA_INTERFACE"
-
-		# Note: unnecessary if Table != off above, but doesn't hurt.
-		# tripled because this listing appears to disappear sometimes
-# 		ip rule add to "$SERVER_IP" lookup china pref 10
+		ip route add default table $VPNONLY_ROUTE_TABLE dev "$PIA_INTERFACE"
 
 	fi
 else
-# 	echo ip rule add to "$SERVER_IP" lookup china pref 10
-# 	sudo ip rule add to "$SERVER_IP" lookup china pref 10
-
-	echo ip rule add fwmark 51820 lookup china pref 10
-	sudo ip rule add fwmark 51820 lookup china pref 10
+	echo ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
+	sudo ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
 
 	if ! ip link list "$PIA_INTERFACE" > /dev/null
 	then
@@ -452,9 +370,6 @@ else
 
 		echo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
 		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
-
-# 		echo ip rule del to "$OLD_PEER_IP" lookup china
-# 		sudo ip rule del to "$OLD_PEER_IP" lookup china
 	fi
 
 	echo ip route add default dev "$PIA_INTERFACE"
