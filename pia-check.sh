@@ -14,4 +14,4 @@ source "$PIA_CONFIG"
 
 SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
-ping -n -w5 -W0.5 -c5 "$SERVER_VIP"
+ping -I$PIA_INTERFACE -n -w5 -W0.5 -c5 "$SERVER_VIP"
