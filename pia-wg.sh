@@ -44,20 +44,6 @@ then
 	exit 1
 fi
 
-if ! which jq &>/dev/null
-then
-	echo "The 'jq' utility is required"
-	echo "    Most package managers should have a 'jq' package available"
-	EXIT=1
-fi
-
-if ! which ip &>/dev/null
-then
-	echo "The 'ip' utility from iproute2 is required"
-	echo "    Most package managers should have a 'iproute2' package available"
-	EXIT=1
-fi
-
 if ! which curl &>/dev/null
 then
 	echo "The 'curl' utility is required"
@@ -65,11 +51,34 @@ then
 	EXIT=1
 fi
 
-if ! which wg &>/dev/null
+if ! which jq &>/dev/null
 then
-	echo "The 'wg' utility from wireguard-tools is required"
-	echo "    Most package managers should have a 'wireguard-tools' package available"
+	echo "The 'jq' utility is required"
+	echo "    Most package managers should have a 'jq' package available"
 	EXIT=1
+fi
+
+if [ -z "$OPT_CONFIGONLY" ]
+then
+	if ! which ip &>/dev/null
+	then
+		echo "The 'ip' utility from iproute2 is needed to apply configs to this machine"
+		echo "    Most package managers should have a 'iproute2' package available"
+		EXIT2=1
+	fi
+
+	if ! which wg &>/dev/null
+	then
+		echo "The 'wg' utility from wireguard-tools is needed to apply configs to this machine"
+		echo "    Most package managers should have a 'wireguard-tools' package available"
+		EXIT2=1
+	fi
+	if [ -n "$EXIT2" ]
+	then
+		echo
+		echo "You can use the -c option if you wish to only generate a config"
+	fi
+	EXIT="${EXIT}${EXIT2}"
 fi
 
 PIA_CONFIG="$(dirname "$(realpath "$(which "$0")")")/pia-config.sh"
