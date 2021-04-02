@@ -9,6 +9,41 @@
 #
 # After the first run to fetch various data files and an auth token, this script does not require the ability to DNS resolve privateinternetaccess.com
 
+while [ -n "$1" ]
+do
+	case "$1" in
+		"-r")
+			shift
+			OPT_RECONNECT=1
+			;;
+		"-c")
+			shift
+			OPT_CONFIGONLY=1
+			;;
+		"-h")
+			shift
+			OPT_SHOWHELP=1
+			;;
+		*)
+			echo "Unrecognized option: $1"
+			shift
+			OPT_SHOWHELP=1
+			;;
+	esac
+done
+
+if [ -n "$OPT_SHOWHELP" ]
+then
+	echo
+	echo "USAGE: $(basename "$0") [-r] [-c]"
+	echo
+	echo "    -r  Force reconnection even if a cached link is available"
+	echo
+	echo "    -c  Config only - generate a WireGuard config but do not apply it to this system"
+	echo
+	exit 1
+fi
+
 if ! which jq &>/dev/null
 then
 	echo "The 'jq' utility is required"
@@ -49,22 +84,17 @@ fi
 
 source "$PIA_CONFIG"
 
-if [ -z "$TOK" ] && ([ -z "$PIA_USERNAME" ] || [ -z "$PASS" ])
+# if [ -z "$TOK" ] && ([ -z "$PIA_USERNAME" ] || [ -z "$PASS" ])
+if ! [ -r "$CONFIG" ]
 then
+	echo "Cannot read '$CONFIG', generating a default one"
 	if [ -z "$PIA_USERNAME" ]
 	then
 		read -p "Please enter your privateinternetaccess.com username: " PIA_USERNAME
 	fi
-	if [ -z "$PASS" ]
-	then
-		echo "If you do not wish to save your password, and want to be asked every time an auth token is required, simply press enter now"
-		read -p "Please enter your privateinternetaccess.com password: " -s PASS
-	fi
 	cat <<ENDCONFIG > "$CONFIG"
 # your privateinternetaccess.com username (not needed if you already have an auth token)
 PIA_USERNAME="$PIA_USERNAME"
-# your privateinternetaccess.com password (not needed if you already have an auth token)
-PASS='$PASS'
 
 # your desired endpoint location
 LOC="$LOC"
@@ -78,31 +108,21 @@ CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
 # if PORTFORWARD is set, pia-wg will only connect to port-forward capable servers, and will invoke pia-portforward.sh after connection
 # PORTFORWARD="literally anything"
 
+# If you have an existing routing table that only contains routes for hardware interfaces, specify it here
+# this will allow pia-wg to hop endpoints without requiring you to disconnect first
+# HARDWARE_ROUTE_TABLE="hardlinks"
+
+# If you have daemons that you want to force to only use the VPN and already have a routing table for this purpose, specify it here
+# pia-wg will add a default route via the PIA VPN link to that table for you
+# VPNONLY_ROUTE_TABLE="vpnonly"
 ENDCONFIG
 	echo "Config saved"
 fi
-
-# fetch data.json if missing
-# if ! [ -r "$DATAFILE" ]
-# then
-# 	echo "Fetching wireguard server list from PIA"
-# 	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
-# 	curl 'https://www.privateinternetaccess.com/vpninfo/servers?version=1001&client=x-alpha' > "$DATAFILE.temp" || exit 1
-# 	if [ "$(jq 'map_values(select(.wireguard)) | keys' "$DATAFILE.temp" 2>/dev/null | wc -l)" -le 50 ]
-# 	then
-# 		echo "Bad serverlist retrieved to $DATAFILE.temp, exiting"
-# 		echo "You can try again if there was a transient error"
-# 		exit 1
-# 	else
-# 		jq -cM 'map_values(select(.wireguard))' "$DATAFILE.temp" > "$DATAFILE" 2>/dev/null
-# 	fi
-# fi
 
 # fetch data-new.json if missing
 if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
-	# wget -O "$DATAFILE" 'https://raw.githubusercontent.com/pia-foss/desktop/master/tests/res/openssl/payload1/payload' || exit 1
 	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' -o "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
@@ -120,9 +140,9 @@ then
 	curl --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
-if [ "$1" == "-n" ]
+if [ -n "$OPT_RECONNECT" ]
 then
-	rm "$CONNCACHE"
+	rm "$CONNCACHE" "$REMOTEINFO"
 fi
 
 if [ -r "$CONNCACHE" ]
@@ -159,32 +179,6 @@ then
 		exit 1
 	fi
 
-	if [ -z "$TOK" ]
-	then
-		if [ -z "$PASS" ]
-		then
-			echo "A new auth token is required, and you have not saved your password."
-			echo "Your password will NOT be saved if you enter it now."
-			read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
-		fi
-		TOK=$(curl -X POST \
-		-H "Content-Type: application/json" \
-		-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
-		"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
-
-		# echo "got token: $TOK"
-
-		if [ -z "$TOK" ]; then
-			echo "Failed to authenticate with privateinternetaccess"
-			echo "Check your user/pass and try again"
-			exit 1
-		fi
-
-		touch "$TOKENFILE"
-		chmod 600 "$TOKENFILE"
-		echo "$TOK" > "$TOKENFILE"
-	fi
-
 	jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW" > "$CONNCACHE"
 
 	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
@@ -202,48 +196,89 @@ if [ -z "$WG_HOST$WG_PORT" ]; then
   exit 1
 fi
 
-echo "Registering public key with ${BOLD}$WG_NAME $WG_HOST${NORMAL}"
-ip rule add to "$WG_HOST" lookup china pref 10
-
-if ! curl -GsS \
-  --max-time 5 \
-  --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
-  --data-urlencode "pt=$TOK" \
-  --cacert "$PIA_CERT" \
-  --resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
-  "https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+if ! [ -r "$REMOTEINFO" ]
 then
-	echo "Registering with $WG_DNS failed, trying $WG_CN"
-	# fall back to trying 'cn' certificate if DNS fails
-	# /u/dean_oz reported that this works better for them at https://www.reddit.com/r/PrivateInternetAccess/comments/h9y4da/is_there_any_way_to_generate_wireguard_config/fyfqjf7/
-	# in testing I find that sometimes one works, sometimes the other works
-	if ! curl -GsS \
-	  --max-time 5 \
-	  --data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
-	  --data-urlencode "pt=$TOK" \
-	  --cacert "$PIA_CERT" \
-	  --resolve "$WG_CN:$WG_PORT:$WG_HOST" \
-	  "https://$WG_CN:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+	if [ -z "$TOK" ]
 	then
-		echo "Failed to register key with $WG_SN ($WG_HOST)"
-		if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
+		if [ -z "$PIA_UESRNAME" ] || [ -z "$PASS" ]
 		then
-			echo "If you're trying to change hosts because your link has stopped working,"
-			echo "  you may need to ${BOLD}ip link del dev $PIA_INTERFACE${NORMAL} and try this script again"
+			echo "A new auth token is required."
 		fi
+		if [ -z "$PIA_USERNAME" ]
+		then
+			read -p "Please enter your privateinternetaccess.com username: " PIA_USERNAME
+			[ -z "$PIA_USERNAME" ] && exit 1
+		fi
+		if [ -z "$PASS" ]
+		then
+			echo "Your password will NOT be saved."
+			read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
+			[ -z "$PASS" ] && exit 1
+		fi
+		TOK=$(curl -X POST \
+		-H "Content-Type: application/json" \
+		-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
+		"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
+
+		# echo "got token: $TOK"
+
+		if [ -z "$TOK" ]; then
+			echo "Failed to authenticate with privateinternetaccess"
+			echo "Check your user/pass and try again"
+			exit 1
+		fi
+
+		touch "$TOKENFILE"
+		chmod 600 "$TOKENFILE"
+		echo "$TOK" > "$TOKENFILE"
+
+		echo "Functional DNS is no longer required."
+		echo "If you're setting up in a region with heavy internet restrictions, you can disable your alternate VPN or connection method now"
+	fi
+
+	echo "Registering public key with ${BOLD}$WG_NAME $WG_HOST${NORMAL}"
+	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup china pref 10
+
+	if ! curl -GsS \
+	--max-time 5 \
+	--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+	--data-urlencode "pt=$TOK" \
+	--cacert "$PIA_CERT" \
+	--resolve "$WG_CN:$WG_PORT:$WG_HOST" \
+	"https://$WG_CN:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+	then
+		echo "Registering with $WG_CN failed, trying $WG_DNS"
+		# fall back to trying DNS certificate if CN fails
+		# /u/dean_oz reported that this works better for them at https://www.reddit.com/r/PrivateInternetAccess/comments/h9y4da/is_there_any_way_to_generate_wireguard_config/fyfqjf7/
+		# in testing I find that sometimes one works, sometimes the other works
+		if ! curl -GsS \
+		--max-time 5 \
+		--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+		--data-urlencode "pt=$TOK" \
+		--cacert "$PIA_CERT" \
+		--resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
+		"https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+		then
+			echo "Failed to register key with $WG_SN ($WG_HOST)"
+			if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
+			then
+				echo "If you're trying to change hosts because your link has stopped working,"
+				echo "  you may need to ${BOLD}ip link del dev $PIA_INTERFACE${NORMAL} and try this script again"
+			fi
+			exit 1
+		fi
+	fi
+
+	if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
+	then
+		echo "WG key registration failed - bad token?"
+		echo "If you see an auth error, consider deleting $TOKENFILE and getting a new token"
 		exit 1
 	fi
-fi
 
-if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
-then
-	echo "WG key registration failed - bad token?"
-	echo "If you see an auth error, consider deleting $TOKENFILE and getting a new token"
-	exit 1
+	mv  "$REMOTEINFO.temp" \
+		"$REMOTEINFO"
 fi
-
-mv  "$REMOTEINFO.temp" \
-	"$REMOTEINFO"
 
 PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
 SERVER_PUBLIC_KEY="$(jq -r .server_key  "$REMOTEINFO")"
@@ -251,24 +286,24 @@ SERVER_IP="$(jq -r .server_ip "$REMOTEINFO")"
 SERVER_PORT="$(jq -r .server_port "$REMOTEINFO")"
 SERVER_VIP="$(jq -r .server_vip "$REMOTEINFO")"
 
-# echo "Generating $WGCONF"
-# echo
+if [ -n "$OPT_CONFIGONLY" ]
+then
+	cat > "$WGCONF" <<ENDWG
+	[Interface]
+	PrivateKey = $CLIENT_PRIVATE_KEY
+	Address    = $PEER_IP
+	DNS        = $(jq -r '.dns_servers[0:2]' "$REMOTEINFO" | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
 
-# cat > "$WGCONF" <<ENDWG
-# [Interface]
-# PrivateKey = $CLIENT_PRIVATE_KEY
-# Address    = $PEER_IP
-# Table      = off
-# DNS        = $(jq -r '.dns_servers[0:2]' "$REMOTEINFO" | grep ^\  | cut -d\" -f2 | xargs echo | sed -e 's/ /,/g')
-#
-# [Peer]
-# PublicKey  = $SERVER_PUBLIC_KEY
-# AllowedIPs = 0.0.0.0/0, ::/0
-# Endpoint   = $SERVER_IP:$SERVER_PORT
-# ENDWG
+	[Peer]
+	PublicKey  = $SERVER_PUBLIC_KEY
+	AllowedIPs = 0.0.0.0/0, ::/0
+	Endpoint   = $SERVER_IP:$SERVER_PORT
+ENDWG
 
-# echo
-# echo "OK"
+	echo
+	echo "$WGCONF generated, exiting"
+	exit 0
+fi
 
 if ! ip route show table $HARDWARE_ROUTE_TABLE 2>/dev/null | grep -q .
 then
