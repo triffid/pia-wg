@@ -301,7 +301,14 @@ then
 ENDWG
 
 	echo
-	echo "$WGCONF generated, exiting"
+	echo "$WGCONF generated"
+	echo
+	if which qrencode &>/dev/null
+	then
+		qrencode -t ansiutf8 < "$WGCONF"
+	fi
+	echo
+	cat "$WGCONF"
 	exit 0
 fi
 
