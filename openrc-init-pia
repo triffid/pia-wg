@@ -42,7 +42,7 @@ start() {
 }
 
 reload() {
-	start -n
+	start -r
 }
 
 restart() {

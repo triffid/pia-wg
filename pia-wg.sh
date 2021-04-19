@@ -58,34 +58,45 @@ then
 	EXIT=1
 fi
 
+if ! which wg &>/dev/null
+then
+	echo -n "The 'wg' utility from wireguard-tools is needed to generate keys"
+	[ -z "$OPT_CONFIGONLY" ] && echo -n " and apply settings to this machine"
+	echo
+	echo "    Most package managers should have a 'wireguard-tools' package available"
+	EXIT2=1
+fi
+
 if [ -z "$OPT_CONFIGONLY" ]
 then
 	if ! which ip &>/dev/null
 	then
-		echo "The 'ip' utility from iproute2 is needed to apply configs to this machine"
+		echo "The 'ip' utility from iproute2 is needed to apply settings to this machine"
 		echo "    Most package managers should have a 'iproute2' package available"
 		EXIT2=1
 	fi
 
-	if ! which wg &>/dev/null
-	then
-		echo "The 'wg' utility from wireguard-tools is needed to apply configs to this machine"
-		echo "    Most package managers should have a 'wireguard-tools' package available"
-		EXIT2=1
-	fi
 	if [ -n "$EXIT2" ]
 	then
 		echo
 		echo "You can use the -c option if you wish to only generate a config"
 	fi
 	EXIT="${EXIT}${EXIT2}"
+else
+	if ! which qrencode &>/dev/null
+	then
+		echo "The 'qrencode' utility is recommended if you want to generate a config for the WireGuard Android app"
+		echo "    It will allow you to load the config easily by scanning a QR code printed to this terminal"
+		echo "    A config will still be generated without it, but you will have to apply it by another method"
+		# this is not an error, do not set EXIT
+	fi
 fi
 
 PIA_CONFIG="$(dirname "$(realpath "$(which "$0")")")/pia-config.sh"
 
 if ! [ -r "$PIA_CONFIG" ]
 then
-	echo "Can't find pia-config.sh at $PIA_CONFIG - if you've symlinked pia-wg.sh, please also symlink that file"
+	echo "Can't find 'pia-config.sh' at $PIA_CONFIG - please ensure it is present at that location, or suggest an improvement to this script for finding it"
 	EXIT=1
 fi
 
@@ -93,7 +104,6 @@ fi
 
 source "$PIA_CONFIG"
 
-# if [ -z "$TOK" ] && ([ -z "$PIA_USERNAME" ] || [ -z "$PASS" ])
 if ! [ -r "$CONFIG" ]
 then
 	echo "Cannot read '$CONFIG', generating a default one"
@@ -145,13 +155,13 @@ fi
 
 if ! [ -r "$PIA_CERT" ]
 then
-	echo "Fetching PIA self-signed cert from github"
+	echo "Fetching PIA self-signed RSA certificate from github"
 	curl --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
 if [ -n "$OPT_RECONNECT" ]
 then
-	rm "$CONNCACHE" "$REMOTEINFO"
+	rm "$CONNCACHE" "$REMOTEINFO" 2>/dev/null
 fi
 
 if [ -r "$CONNCACHE" ]
@@ -201,7 +211,7 @@ then
 fi
 
 if [ -z "$WG_HOST$WG_PORT" ]; then
-  echo "no wg region, exiting"
+  echo "wg host/port not found (bad server list?), exiting"
   exit 1
 fi
 
@@ -225,9 +235,15 @@ then
 			[ -z "$PASS" ] && exit 1
 		fi
 		TOK=$(curl -X POST \
-		-H "Content-Type: application/json" \
-		-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
-		"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
+			-H "Content-Type: application/json" \
+			-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
+			"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
+		if [ -z "$TOK" ]
+		then
+			echo "PIA API v2 failed, trying V3"
+			TOK=$(curl -s -u "$PIA_USER:$PIA_PASS" \
+				"https://privateinternetaccess.com/gtoken/generateToken" | jq -r '.token')
+		fi
 
 		# echo "got token: $TOK"
 
@@ -249,24 +265,24 @@ then
 	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup china pref 10
 
 	if ! curl -GsS \
-	--max-time 5 \
-	--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
-	--data-urlencode "pt=$TOK" \
-	--cacert "$PIA_CERT" \
-	--resolve "$WG_CN:$WG_PORT:$WG_HOST" \
-	"https://$WG_CN:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+		--max-time 5 \
+		--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+		--data-urlencode "pt=$TOK" \
+		--cacert "$PIA_CERT" \
+		--resolve "$WG_CN:$WG_PORT:$WG_HOST" \
+		"https://$WG_CN:$WG_PORT/addKey" > "$REMOTEINFO.temp"
 	then
 		echo "Registering with $WG_CN failed, trying $WG_DNS"
 		# fall back to trying DNS certificate if CN fails
 		# /u/dean_oz reported that this works better for them at https://www.reddit.com/r/PrivateInternetAccess/comments/h9y4da/is_there_any_way_to_generate_wireguard_config/fyfqjf7/
 		# in testing I find that sometimes one works, sometimes the other works
 		if ! curl -GsS \
-		--max-time 5 \
-		--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
-		--data-urlencode "pt=$TOK" \
-		--cacert "$PIA_CERT" \
-		--resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
-		"https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp"
+			--max-time 5 \
+			--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
+			--data-urlencode "pt=$TOK" \
+			--cacert "$PIA_CERT" \
+			--resolve "$WG_DNS:$WG_PORT:$WG_HOST" \
+			"https://$WG_DNS:$WG_PORT/addKey" > "$REMOTEINFO.temp"
 		then
 			echo "Failed to register key with $WG_SN ($WG_HOST)"
 			if ! [ -e "/sys/class/net/$PIA_INTERFACE" ]
@@ -310,18 +326,19 @@ then
 ENDWG
 
 	echo
-	echo "$WGCONF generated"
+	echo "$WGCONF generated:"
+	echo
+	cat "$WGCONF"
 	echo
 	if which qrencode &>/dev/null
 	then
 		qrencode -t ansiutf8 < "$WGCONF"
 	fi
 	echo
-	cat "$WGCONF"
 	exit 0
 fi
 
-if ! ip route show table $HARDWARE_ROUTE_TABLE 2>/dev/null | grep -q .
+if ! ip route show table "$HARDWARE_ROUTE_TABLE" 2>/dev/null | grep -q .
 then
 	ROUTES_ADD=$(
 		for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
@@ -341,6 +358,7 @@ then
 	ip route show table $HARDWARE_ROUTE_TABLE | sed -e "s/^/${TAB}/"
 	echo
 	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
+	echo "Managing such hooks is beyond the scope of this script"
 fi
 
 # echo "Bringing up wireguard interface $PIA_INTERFACE... "
@@ -404,33 +422,37 @@ then
 
 	fi
 else
+	echo
+	echo "Not running as root/sudo - did you want to specify -c (config only) ?"
+	echo "Setup commands will now be fed through sudo"
+	echo
 	echo ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
-	sudo ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
+	sudo ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10 || exit 1
 
 	if ! ip link list "$PIA_INTERFACE" > /dev/null
 	then
 		echo ip link add "$PIA_INTERFACE" type wireguard
-		sudo ip link add "$PIA_INTERFACE" type wireguard
+		sudo ip link add "$PIA_INTERFACE" type wireguard || exit 1
 	fi
 
 	echo wg set "$PIA_INTERFACE" fwmark 51820 private-key "$CLIENT_PRIVATE_KEY"         peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
-	sudo wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0"
+	sudo wg set "$PIA_INTERFACE" fwmark 51820 private-key <(echo "$CLIENT_PRIVATE_KEY") peer "$SERVER_PUBLIC_KEY" endpoint "$SERVER_IP:$SERVER_PORT" allowed-ips "0.0.0.0/0,::/0" || exit 1
 
 	echo ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
-	sudo ip addr replace "$PEER_IP" dev "$PIA_INTERFACE"
+	sudo ip addr replace "$PEER_IP" dev "$PIA_INTERFACE" || exit 1
 
-	if ip link list $PIA_INTERFACE > /dev/null
+	if ip link list "$PIA_INTERFACE" > /dev/null
 	then
 		OLD_PEER_IP="$(ip -j addr show dev pia | jq '.[].addr_info[].local')"
 		OLD_KEY="$(echo $(wg showconf "$PIA_INTERFACE" | grep ^PublicKey | cut -d= -f2))"
 		OLD_ENDPOINT="$(wg show "$PIA_INTERFACE" endpoints | grep "$OLD_KEY" | cut "-d${TAB}" -f2 | cut -d: -f1)"
 
 		echo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
-		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove
+		sudo wg set "$PIA_INTERFACE" peer "$OLD_KEY" remove || exit 1
 	fi
 
 	echo ip route add default dev "$PIA_INTERFACE"
-	sudo ip route add default dev "$PIA_INTERFACE"
+	sudo ip route add default dev "$PIA_INTERFACE" || exit 1
 fi
 
 echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
@@ -441,7 +463,7 @@ while ! ping -n -c1 -w 5 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 	TRIES=$(( $TRIES + 1 ))
-	if [[ $TRIES -ge 20 ]]
+	if [[ $TRIES -ge 10 ]]
 	then
 		echo "Connection failed to stabilise, try again"
 		exit 1
@@ -455,16 +477,14 @@ then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
 	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4"
-	# curl 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 1
-	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" ||
-	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" ||
-	exit 0
+	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" || \
+	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 0
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
 		echo "You can try again if there was a transient error"
-		exit 1
+		# exit 1 // this isn't a fatal error, just an inconvenience
 	else
 		jq -cM '.' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
 	fi
@@ -477,12 +497,18 @@ then
 	then
 		pia-portforward.sh
 	else
-		if [ -r "${0%/*}/pia-portforward.sh" ]
+		if [ -e "${0%/*}/pia-portforward.sh" ]
 		then
 			"${0%/*}/pia-portforward.sh"
 		else
-			echo "pia-portforward.sh couldn't be found!"
-			exit 1
+			PIA_PORTFORWARD="$(dirname "$(realpath "$(which "$0")")")/pia-portforward.sh"
+			if [ -e "$PIA_PORTFORWARD" ]
+			then
+				"$PIA_PORTFORWARD"
+			else
+				echo "pia-portforward.sh couldn't be found!"
+				exit 1
+			fi
 		fi
 	fi
 	echo "Note: pia-portforward.sh should be called every ~5 minutes to maintain your forward."
