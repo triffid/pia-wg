@@ -2,32 +2,34 @@
 
 ## Prelude
 
-* [Private Internet Access (PIA)](https://privateinternetaccess.com) is a VPN provider that claims a strict interest in privacy and claims to not log user traffic.
+* [Private Internet Access (PIA)](https://privateinternetaccess.com) is a VPN provider that claims a strict interest in privacy and [does not log user traffic](https://www.privateinternetaccess.com/helpdesk/kb/articles/do-you-log-3).
 
 * [WireGuard](https://wireguard.com) is a relatively new VPN protocol written by a consortium of Linux developers and cryptographers, designed to be small, simple, efficient, and avoid many of the pitfalls of other popular VPN protocols.
 
 ## Usage
 
-These scripts have been tested on Gentoo Linux, but should work with other Linux distributions.
+These scripts have been tested on Gentoo Linux, but _should_ work with other Linux distributions.
 
 They have not been tested on OSX but might work - pull requests are welcomed as long as they don't adversely affect the functionality on Linux, or excessively complicate the scripts.
 
-Windows is hard mode and entirely out of scope for this project.<br>
-Issues or queries mentioning this OS will be immediately closed and/or ignored.
+Windows is entirely out of scope for this project.
 
 ### pia-wg
 
 `./pia-wg.sh [-r] [-c]`
 
-* **-r** (reload/reconnect)<br>Hop to a new server or re-submit keys to selected server, even if a cached connection profile is available
-* **-c** (config only)<br>Only generate config, do not affect current system - useful for generating configs for routers and similar devices, or WireGuard's Android/iOS apps (if you don't like the PIA app) <br>
-	if `qrencode` is available, will also print a QR code to your terminal that can be scanned by the Wireguard app.
+* **-r** (reload/reconnect)<br>
+Hop to a new server or re-submit keys to selected server, even if a cached connection profile is available
+* **-c** (config only)<br>
+Only generate config, do not affect current system - useful for generating configs for routers and similar devices, or WireGuard's Android/iOS apps (if you don't like the PIA app)<br>
+The generated config will be stored at `~/.config/pia-wg/pia.conf` or `/var/cache/pia-wg/pia.conf` - where the filename is based on the `PIA_INTERFACE` value in your config (default "`pia`")<br>
+if `qrencode` is available, will also print a QR code to your terminal that can be scanned by the Wireguard mobile app.
 
-During the first run, script will grab PIA's encryption key and initial server list, prompt for your PIA login credentials, and fetch an authentication token before proceeding to set up a wireguard connection.
+During the first run, `pia-wg` will grab PIA's encryption key and initial server list, prompt for your PIA login credentials, and fetch an authentication token from PIA before proceeding to set up a wireguard connection.
 
-By default, it saves your settings in `~/.config/pia-wg/pia-wg.conf` (when run as user) or `/var/cache/pia-wg/pia-wg.conf` (when run as root or under `sudo`) - and saves other cached data (eg auth token, server list, cached connection, port-forward token, etc) in the same folder.
+By default, it saves your settings in `~/.config/pia-wg/pia-wg.conf` (when run as user) or `/var/cache/pia-wg/pia-wg.conf` (when run as root or under `sudo`) - and saves other data (eg auth token, server list, cached connection, port-forward token, etc) in the same folder.
 
-You can edit the config at any time, and examine other cached files.
+You can edit the config at any time, and examine other cached files in that folder.
 
 `pia-wg` will attempt to automatically configure your routing tables and rules, but if you already have a suitable configuration, you can tell it which routing tables to use by setting `HARDWARE_ROUTE_TABLE` (table should only have hardlinks such as ethernet/wifi, wireguard packets are sent via this table) and/or `VPNONLY_ROUTE_TABLE` (table should be empty except for the PIA wireguard link, you can configure your system to force certain types of packets to use this table)
 
@@ -75,16 +77,17 @@ The `qrencode` utility is optional, but is called when `-c` is specified to prin
 
 * [PIA have published their own shell scripts](https://github.com/pia-foss/manual-connections) with somewhat similar functionality, but a significantly different scope and target audience.<br>
 
-* These scripts are carefully designed to not need working DNS after the initial setup, since they were written for places where PIA is ostensibly blocked.<br><br>During initial setup in such places however, you'll have to use an alternate connection method so that the auth token can be fetched from PIA's API, and the initial serverlist and PIA encryption key can be grabbed from github.
+* These scripts are carefully designed to not need working DNS after the initial setup, since they were written for places where PIA is ostensibly blocked.<br>
+During initial setup in such places however, you may have to use an alternate connection method so that the auth token can be fetched from PIA's API, and the initial serverlist and PIA encryption key can be downloaded.
 
 * While these scripts are designed to have a robust quantity of automation and error checking, pull requests for improvements are always welcome.
 
 * The routing tables and rules are designed to gracefully handle connection changes (eg ethernet/wifi/mobile handover) since WireGuard itself is designed to gracefully handle this - however this requires your system to dynamically update the hardware-only routing table as required by adding new routes and removing stale ones.<br>
 Configuring your system to do this is beyond the scope of this document.
 
-* PIA have not published details on the longevity of negotiated wireguard configurations, or authentication token.<br>
-As a result, we cannot suggest any schedule upon which these should be renewed.<br>
-Empirical testing suggests that they seem to last for weeks to months at least, although [PIA state in their own scripts](https://github.com/pia-foss/manual-connections/blob/742a492/get_token.sh#L94) that the authentication token only has a validity of 24 hours.<br>
-PIA Customer Support has tentatively suggested that wireguard configurations are tied to authentication tokens, and only the most recent 10 tokens are valid (in line with PIA's "10 simultaneous devices" rule) - with older tokens and their associated links being flushed when a new token is requested, and previous links associated with a token being flushed if a new link is created against a token.<br>
-If PIA's apps are used on the same account and fetches a new token periodically, this could have implications for long-running wireguard configurations such as when a router or phone is configured without the ability to update its configuration automatically.<br>
-It remains to be seen if PIA's backend can check which wireguard configurations are still in active use, flushing the most stale one instead of the oldest one.
+* In [this comment](https://github.com/pia-foss/manual-connections/pull/111#issuecomment-822824399), PIA have stated that stale wireguard configs will be flushed within "several hours", so generated configs are of little utility on devices that aren't online 24/7.<br>
+Also, PIA's servers are rebooted periodically ("every few months"), and all wireguard configs will be lost at that time since the servers do not retain any state across reboots.
+
+* While empirical testing suggests that authentication tokens seem to last for many months at least, [PIA state in their own scripts](https://github.com/pia-foss/manual-connections/blob/742a492/get_token.sh#L94) that the authentication token only has a validity of 24 hours.<br>
+This could be related to fetching tokens from either their v2 or v3 API - this script prefers the v2 API, and will try v3 if v2 fails.<br>
+The documented token expiry schedule may make it necessary to store your unobfuscated PIA account password in the future.
