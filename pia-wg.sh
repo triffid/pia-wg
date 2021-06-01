@@ -219,7 +219,7 @@ if ! [ -r "$REMOTEINFO" ]
 then
 	if [ -z "$TOK" ]
 	then
-		if [ -z "$PIA_UESRNAME" ] || [ -z "$PASS" ]
+		if [ -z "$PIA_USERNAME" ] || [ -z "$PASS" ]
 		then
 			echo "A new auth token is required."
 		fi
