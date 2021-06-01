@@ -240,6 +240,18 @@ then
 			"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
 		if [ -z "$TOK" ]
 		then
+			echo "failed, trying meta server"
+			METASERVER="$(jq -r ".servers.meta[0].ip" "$CONNCACHE")"
+			METADNS="$(jq -r ".servers.meta[0].cn" "$CONNCACHE")"
+			TOK=$(curl -s \
+				--cacert "$PIA_CERT" \
+				--resolve "$METADNS:$WG_PORT:$METASERVER" \
+				-u "$PIA_USER:$PIA_PASS" \
+				"https://$METADNS/authv3/generateToken" \
+				| jq -r ".token")
+		fi
+		if [ -z "$TOK" ]
+		then
 			echo "PIA API v2 failed, trying V3"
 			TOK=$(curl -s -u "$PIA_USER:$PIA_PASS" \
 				"https://privateinternetaccess.com/gtoken/generateToken" | jq -r '.token')
@@ -290,6 +302,7 @@ then
 				echo "If you're trying to change hosts because your link has stopped working,"
 				echo "  you may need to ${BOLD}ip link del dev $PIA_INTERFACE${NORMAL} and try this script again"
 			fi
+			rm -f "$CONNCACHE" "$REMOTEINFO"
 			exit 1
 		fi
 	fi
@@ -463,9 +476,10 @@ while ! ping -n -c1 -w 5 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 	TRIES=$(( $TRIES + 1 ))
-	if [[ $TRIES -ge 10 ]]
+	if [[ $TRIES -ge 5 ]]
 	then
 		echo "Connection failed to stabilise, try again"
+		rm -f "$CONNCACHE" "$REMOTEINFO"
 		exit 1
 	fi
 	sleep 0.5 # so we can catch ctrl+c
