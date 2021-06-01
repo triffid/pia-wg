@@ -115,6 +115,9 @@ then
 # your privateinternetaccess.com username (not needed if you already have an auth token)
 PIA_USERNAME="$PIA_USERNAME"
 
+# [OPTIONAL] your privateinternetaccess.com password (only needed once for v2 tokens, will be requested when needed if absent here)
+# PIA_PASSWORD=""
+
 # your desired endpoint location
 LOC="$LOC"
 
@@ -219,6 +222,7 @@ if ! [ -r "$REMOTEINFO" ]
 then
 	if [ -z "$TOK" ]
 	then
+		PASS="$PIA_PASSWORD"
 		if [ -z "$PIA_USERNAME" ] || [ -z "$PASS" ]
 		then
 			echo "A new auth token is required."
@@ -245,16 +249,22 @@ then
 			METADNS="$(jq -r ".servers.meta[0].cn" "$CONNCACHE")"
 			TOK=$(curl -s \
 				--cacert "$PIA_CERT" \
-				--resolve "$METADNS:$WG_PORT:$METASERVER" \
-				-u "$PIA_USER:$PIA_PASS" \
+				--resolve "$METADNS:443:$METASERVER" \
+				-u "$PIA_USERNAME:$PASS" \
 				"https://$METADNS/authv3/generateToken" \
 				| jq -r ".token")
 		fi
 		if [ -z "$TOK" ]
 		then
 			echo "PIA API v2 failed, trying V3"
-			TOK=$(curl -s -u "$PIA_USER:$PIA_PASS" \
+			TOK=$(curl -s -u "$PIA_USERNAME:$PASS" \
 				"https://privateinternetaccess.com/gtoken/generateToken" | jq -r '.token')
+		fi
+
+		if [ -z "$PIA_PASSWORD" ]
+		then
+			unset PASS
+			echo "Your password has been forgotten, please edit $CONFIG and set PIA_PASSWORD if you wish to store it permanently."
 		fi
 
 		# echo "got token: $TOK"
