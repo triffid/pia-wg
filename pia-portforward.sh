@@ -70,7 +70,7 @@ then
 	# Very strange - must connect via 10.0/8 private VPN link to the server's public IP - why?
 	# I tried SERVER_VIP (10.0/8 private IP) instead of SERVER_IP (public IP) but it won't connect
 	# It also won't connect if you try to connect from the internet, hence needing --interface "$PIA_INTERFACE"
-	PF_SIG="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode token@/dev/fd/3 --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/getSignature" 3< <(echo -n "$TOK") | tee "$PF_SIGFILE")"
+	PF_SIG="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 1 --max-time 2 --data-urlencode token@/dev/fd/3 --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/getSignature" 3< <(echo -n "$TOK") | tee "$PF_SIGFILE")"
 
 	PF_STATUS="$(jq -r .status <<< "$PF_SIG")"
 	if [ "$PF_STATUS" != "OK" ]
@@ -89,7 +89,7 @@ fi
 PF_GETSIGNATURE=$(jq -r .signature <<< "$PF_SIG")
 PF_PORT=$(jq -r .port <<< "$PF_PAYLOAD")
 
-PF_BIND="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 5 --max-time 15 --data-urlencode payload@/dev/fd/3 --data-urlencode signature@/dev/fd/4 --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/bindPort" 3< <(echo -n "$PF_PAYLOAD_RAW") 4< <(echo -n "$PF_GETSIGNATURE") )"
+PF_BIND="$(curl --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --get --silent --show-error --retry 5 --retry-delay 1 --max-time 2 --data-urlencode payload@/dev/fd/3 --data-urlencode signature@/dev/fd/4 --resolve "$WG_CN:19999:$SERVER_IP" "https://$WG_CN:19999/bindPort" 3< <(echo -n "$PF_PAYLOAD_RAW") 4< <(echo -n "$PF_GETSIGNATURE") )"
 
 PF_STATUS="$(jq -r .status <<< "$PF_BIND")"
 if [ "$PF_STATUS" != "OK" ]

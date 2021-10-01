@@ -320,6 +320,7 @@ then
 	if [ "$(jq -r .status "$REMOTEINFO.temp")" != "OK" ]
 	then
 		echo "WG key registration failed - bad token?"
+		jq "$REMOTEINFO.temp"
 		echo "If you see an auth error, consider deleting $TOKENFILE and getting a new token"
 		exit 1
 	fi
@@ -482,7 +483,7 @@ echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
 
 TRIES=0
 echo -n "Waiting for connection to stabilise..."
-while ! ping -n -c1 -w 5 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
+while ! ping -n -c1 -w 1 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 	TRIES=$(( $TRIES + 1 ))
