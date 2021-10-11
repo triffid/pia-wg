@@ -201,19 +201,21 @@ then
 		exit 1
 	fi
 
-	jq -r ".regions | .[] | select(.id == \"$LOC\")" "$DATAFILE_NEW" > "$CONNCACHE"
+	SERVERINFO="$(jq -r ".regions[] | select(.id == \"$LOC\")" "$DATAFILE_NEW")"
 
-	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
-	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
+	WG_NAME="$(jq -r ".name" <<< "$SERVERINFO")"
+	WG_DNS="$( jq -r ".dns"  <<< "$SERVERINFO")"
 
-	SERVERINDEX="$(jq --arg r $RANDOM '($r|tonumber) % (.servers.wg | length)' "$CONNCACHE")"
-	echo "Selecting server $(( $SERVERINDEX + 1 )) from $(jq '.servers.wg | length' "$CONNCACHE") choices"
+	SERVERINDEX="$(jq --arg r $RANDOM '($r|tonumber) % (.servers.wg | length)' <<< "$SERVERINFO")"
+	echo "Selecting server $(( $SERVERINDEX + 1 )) from $(jq '.servers.wg | length' <<< "$SERVERINFO") choices"
 
-	SELECTEDSERVER="$(jq --arg i $SERVERINDEX '.servers.wg[$i|tonumber]' "$CONNCACHE")"
+	SELECTEDSERVER="$(jq --arg i $SERVERINDEX '.servers.wg[$i|tonumber]' <<< "$SERVERINFO")"
 
 	WG_HOST="$(jq -r ".ip" <<< "$SELECTEDSERVER")"
 	WG_CN="$(  jq -r ".cn" <<< "$SELECTEDSERVER")"
 	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | shuf -n1)"
+
+	jq '. | del(.servers.wg) * { "servers": { "wg": [ { "ip": "'"$WG_HOST"'", "cn": "'"$WG_CN"'" } ] } }' <<< "$SERVERINFO" > "$CONNCACHE"
 
 	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 fi
