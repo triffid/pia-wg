@@ -145,7 +145,7 @@ fi
 if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
-	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' -o "$DATAFILE_NEW.temp" || exit 1
+	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' -o "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
@@ -206,9 +206,14 @@ then
 	WG_NAME="$(jq -r ".name" "$CONNCACHE")"
 	WG_DNS="$(jq -r ".dns"  "$CONNCACHE")"
 
-	WG_HOST="$(jq -r ".servers.wg[0].ip"     "$CONNCACHE")"
-	WG_CN="$(jq -r ".servers.wg[0].cn"     "$CONNCACHE")"
-	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | sort -r | head -n1)"
+	SERVERINDEX="$(jq --arg r $RANDOM '($r|tonumber) % (.servers.wg | length)' "$CONNCACHE")"
+	echo "Selecting server $(( $SERVERINDEX + 1 )) from $(jq '.servers.wg | length' "$CONNCACHE") choices"
+
+	SELECTEDSERVER="$(jq --arg i $SERVERINDEX '.servers.wg[$i|tonumber]' "$CONNCACHE")"
+
+	WG_HOST="$(jq -r ".ip" <<< "$SELECTEDSERVER")"
+	WG_CN="$(  jq -r ".cn" <<< "$SELECTEDSERVER")"
+	WG_PORT="$(jq -r '.groups.wg[0].ports[]' "$DATAFILE_NEW" | shuf -n1)"
 
 	WG_SN="$(cut -d. -f1 <<< "$WG_DNS")"
 fi
@@ -501,9 +506,9 @@ if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
-	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4"
-	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v4" > "$DATAFILE_NEW.temp" || \
-	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/new' > "$DATAFILE_NEW.temp" || exit 0
+	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6"
+	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6" > "$DATAFILE_NEW.temp" || \
+	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' > "$DATAFILE_NEW.temp" || exit 0
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
