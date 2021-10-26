@@ -494,7 +494,7 @@ while ! ping -n -c1 -w 1 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
 do
 	echo -n "."
 	TRIES=$(( $TRIES + 1 ))
-	if [[ $TRIES -ge 5 ]]
+	if [[ $TRIES -ge 3 ]]
 	then
 		echo "Connection failed to stabilise, try again"
 		rm -f "$CONNCACHE" "$REMOTEINFO"
