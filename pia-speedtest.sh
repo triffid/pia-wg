@@ -16,26 +16,36 @@ MIRRORCACHE="$CONFIGDIR/speedtest-cache.xml"
 
 function refresh {
 	echo "Updating Cache..."
-	curl https://api.gentoo.org/mirrors/distfiles.xml > "${MIRRORCACHE}.temp" && mv "${MIRRORCACHE}.temp" "$MIRRORCACHE"
+	curl https://api.gentoo.org/mirrors/distfiles.xml > "${MIRRORCACHE}.temp" || return $?
+	mv "${MIRRORCACHE}.temp" "$MIRRORCACHE"
 }
 
 if [ ! -e "$MIRRORCACHE" ]
 then
-	refresh
+	refresh || exit $?
 fi
 
-# MIRROR="${MIRROR:-https://mirror.rackspace.com/gentoo}"
+if [ -f "$CONNCACHE" ]
+then
+	COUNTRY="$(jq -r .country "$CONNCACHE")"
+	MIRROR="$(xmllint --xpath '/mirrors/mirrorgroup[@country="'"$COUNTRY"'"]/mirror/uri[@protocol="http"]/text()' "$MIRRORCACHE" 2>/dev/null | sort -R | head -n1)"
+	[ -n "$MIRROR" ] && echo "Found endpoint-local mirror $MIRROR in $(jq -r .name "$CONNCACHE")"
+fi
 
-MIRROR="$(xmllint --xpath '/mirrors/mirrorgroup[@country!="CN"]/mirror/uri[@protocol="http"]/text()' "$MIRRORCACHE" | sort -R | head -n1)"
+if [ -z "$MIRROR" ]
+then
+	MIRROR="$(xmllint --xpath '/mirrors/mirrorgroup[@country!="CN"]/mirror/uri[@protocol="http"]/text()' "$MIRRORCACHE" | sort -R | head -n1)"
+fi
 
-SIZE_MB="${SIZE_MB:-10}"
-TIME_S="${TIME_S:-10}"
+: "${SIZE_MB:=10}"
+: "${TIME_S:=10}"
 
-SIZE="${SIZE:-$(( $SIZE_MB * 1048576 ))}"
+: "${SIZE:=$(( $SIZE_MB * 1048576 ))}"
 
 echo "Checking for test file..."
 PINGSTART="$(date +%s.%N)"
-TESTFILE="$(curl -s -S "$MIRROR"/releases/amd64/autobuilds/latest-stage3-amd64-desktop-systemd.txt | tail -n1 | cut -d\  -f1)"
+TESTFILE="$(curl -s -S -m 5 "$MIRROR"/releases/amd64/autobuilds/latest-stage3-amd64-desktop-systemd.txt | tail -n1 | cut -d\  -f1; exit ${PIPESTATUS[0]})"; RET=$?
+[ $RET -ne 0 ] && exit $RET
 PINGEND="$(date +%s.%N)"
 
 echo "Ping: ~"$(bc <<< "($PINGEND - $PINGSTART) * 200")"ms. Testing with $MIRROR/releases/amd64/autobuilds/$TESTFILE"
