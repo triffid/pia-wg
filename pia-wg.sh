@@ -24,6 +24,10 @@ do
 			shift
 			OPT_SHOWHELP=1
 			;;
+		"-f")
+			shift
+			OPT_FAST=1
+			;;
 		*)
 			echo "Unrecognized option: $1"
 			shift
@@ -37,9 +41,13 @@ then
 	echo
 	echo "USAGE: $(basename "$0") [-r] [-c]"
 	echo
-	echo "    -r  Force reconnection even if a cached link is available"
+	echo "    -r  Force reconnection or server hop even if a cached link is available"
 	echo
 	echo "    -c  Config only - generate a WireGuard config but do not apply it to this system"
+	echo "        Use this option for creating Android/iOS/router Wireguard configurations"
+	echo
+	echo "    -f  Fast reconnect if cached link is present - don't test connection or fetch updated serverlist"
+	echo "        Does nothing if cached link information is absent, or if -r is specified"
 	echo
 	exit 1
 fi
@@ -85,7 +93,7 @@ then
 else
 	if ! which qrencode &>/dev/null
 	then
-		echo "The 'qrencode' utility is recommended if you want to generate a config for the WireGuard Android app"
+		echo "The 'qrencode' utility is recommended if you want to generate a config for the WireGuard Android/iOS apps"
 		echo "    It will allow you to load the config easily by scanning a QR code printed to this terminal"
 		echo "    A config will still be generated without it, but you will have to apply it by another method"
 		# this is not an error, do not set EXIT
@@ -334,6 +342,8 @@ then
 
 	mv  "$REMOTEINFO.temp" \
 		"$REMOTEINFO"
+
+	unset OPT_FAST
 fi
 
 PEER_IP="$(jq -r .peer_ip "$REMOTEINFO")"
@@ -379,14 +389,14 @@ then
 	)
 	if [ "$EUID" -eq 0 ]
 	then
+		sh <<< "$ROUTES_ADD"
+	else
 		echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
 		echo sudo sh '<<<' "$ROUTES_ADD"
 		sudo sh <<< "$ROUTES_ADD"
-	else
-		sh <<< "$ROUTES_ADD"
 	fi
 	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
-	ip route show table $HARDWARE_ROUTE_TABLE | sed -e "s/^/${TAB}/"
+	ip route show table "$HARDWARE_ROUTE_TABLE" | sed -e "s/^/${TAB}/"
 	echo
 	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
 	echo "Managing such hooks is beyond the scope of this script"
@@ -407,7 +417,7 @@ then
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
-		ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
+		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10
 
 		if [ "$OLD_KEY" != "$SERVER_PUBLIC_KEY" ]
 		then
@@ -425,19 +435,19 @@ then
 			ip addr del "$OLD_PEER_IP/32" dev "$PIA_INTERFACE"
 
 			# remove old route
-			ip rule del to "$OLD_PEER_IP" lookup $HARDWARE_ROUTE_TABLE 2>/dev/null
+			ip rule del to "$OLD_PEER_IP" lookup "$HARDWARE_ROUTE_TABLE" 2>/dev/null
 		fi
 
 		# Note: only if Table = off in wireguard config file above
 		ip route add default dev "$PIA_INTERFACE"
 
 		# Specific to my setup
-		ip route add default table $VPNONLY_ROUTE_TABLE dev "$PIA_INTERFACE"
+		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE"
 	else
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
-		ip rule add fwmark 51820 lookup $HARDWARE_ROUTE_TABLE pref 10
+		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10
 
 		# bring up wireguard interface
 		ip link add "$PIA_INTERFACE" type wireguard || exit 1
@@ -449,7 +459,7 @@ then
 		ip route add default dev "$PIA_INTERFACE"
 
 		# Specific to my setup
-		ip route add default table $VPNONLY_ROUTE_TABLE dev "$PIA_INTERFACE"
+		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE"
 
 	fi
 else
@@ -487,6 +497,12 @@ else
 fi
 
 echo "PIA Wireguard '$PIA_INTERFACE' configured successfully"
+
+if [ -n "$OPT_FAST" ]
+then
+	echo "-f FAST supplied, skipping connection test and serverlist update"
+	exit 0
+fi
 
 TRIES=0
 echo -n "Waiting for connection to stabilise..."

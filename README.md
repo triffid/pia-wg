@@ -24,6 +24,10 @@ Hop to a new server or re-submit keys to selected server, even if a cached conne
 Only generate config, do not affect current system - useful for generating configs for routers and similar devices, or WireGuard's Android/iOS apps (if you don't like the PIA app)<br>
 The generated config will be stored at `~/.config/pia-wg/pia.conf` or `/var/cache/pia-wg/pia.conf` - where the filename is based on the `PIA_INTERFACE` value in your config (default "`pia`")<br>
 if `qrencode` is available, will also print a QR code to your terminal that can be scanned by the Wireguard mobile app.
+* **-f** (fast)<br>
+Fast reconnect - _only_ restore cached connection information, do _not_ actually try to contact anything on the internet.<br>
+Has no effect with **-r** or if cached connection information is not available.<br>
+Intended for use with startup scripts.<br>
 
 During the first run, `pia-wg` will grab PIA's encryption key and initial server list, prompt for your PIA login credentials, and fetch an authentication token from PIA before proceeding to set up a wireguard connection.
 

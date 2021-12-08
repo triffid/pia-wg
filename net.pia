@@ -2,8 +2,8 @@
 
 command="/root/bin/pia-wg.sh"
 
-CONFIGDIR="${CONFIGDIR:-/var/cache/pia-wg}"
-CONFIG="${CONFIG:-/etc/pia-wg/pia-wg.conf}"
+: "${CONFIGDIR:=/var/cache/pia-wg}"
+: "${CONFIG:=/etc/pia-wg/pia-wg.conf}"
 
 extra_started_commands="reload"
 
@@ -27,7 +27,7 @@ start_pre() {
 	return 0
 }
 
-start() {
+doconn() {
 	(
 		export CONFIGDIR="$CONFIGDIR"
 		export CONFIG="$CONFIG"
@@ -41,8 +41,12 @@ start() {
 	return 0
 }
 
+start() {
+	doconn -f
+}
+
 reload() {
-	start -r
+	doconn -r
 }
 
 restart() {
@@ -51,6 +55,8 @@ restart() {
 }
 
 stop() {
-	source "$CONFIG"
-	ip link del "${PIA_INTERFACE:-pia}"
+	(
+		source "$CONFIG"
+		ip link del "${PIA_INTERFACE:-pia}"
+	);
 }
