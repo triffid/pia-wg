@@ -83,7 +83,7 @@ then
 	PF_PAYLOAD_RAW=$(jq -r .payload <<< "$PF_SIG")
 	PF_PAYLOAD=$(base64 -d <<< "$PF_PAYLOAD_RAW")
 	PF_TOKEN_EXPIRY_RAW=$(jq -r .expires_at <<< "$PF_PAYLOAD")
-	PF_TOKEN_EXPIRY=$(date +%Y-%m-%dT%H:%M:%S --date="$PF_TOKEN_EXPIRY_RAW" +%s)
+	PF_TOKEN_EXPIRY=$(date +%Y-%m-%dT%H:%M:%S --date="$PF_TOKEN_EXPIRY_RAW")
 fi
 
 PF_GETSIGNATURE=$(jq -r .signature <<< "$PF_SIG")
