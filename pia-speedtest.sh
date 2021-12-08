@@ -35,6 +35,7 @@ fi
 if [ -z "$MIRROR" ]
 then
 	MIRROR="$(xmllint --xpath '/mirrors/mirrorgroup[@country!="CN"]/mirror/uri[@protocol="http"]/text()' "$MIRRORCACHE" | sort -R | head -n1)"
+	echo "Using $MIRROR"
 fi
 
 : "${SIZE_MB:=10}"
@@ -42,23 +43,31 @@ fi
 
 : "${SIZE:=$(( $SIZE_MB * 1048576 ))}"
 
-echo "Checking for test file..."
+# echo "Checking for test file..."
 PINGSTART="$(date +%s.%N)"
-TESTFILE="$(curl -s -S -m 5 "$MIRROR"/releases/amd64/autobuilds/latest-stage3-amd64-desktop-systemd.txt | tail -n1 | cut -d\  -f1; exit ${PIPESTATUS[0]})"; RET=$?
-[ $RET -ne 0 ] && exit $RET
+TESTFILE="$(curl -s -S -m 5 "$MIRROR"/releases/amd64/autobuilds/latest-stage3-amd64-desktop-systemd.txt | tail -n1 | cut -d\  -f1; exit ${PIPESTATUS[0]})"; RET="$?"
+[ "$RET" -ne 0 ] && exit "$RET"
 PINGEND="$(date +%s.%N)"
 
 echo "Ping: ~"$(bc <<< "($PINGEND - $PINGSTART) * 200")"ms. Testing with $MIRROR/releases/amd64/autobuilds/$TESTFILE"
 
 DLSTART="$(date +%s.%N)"
-DLSIZE="$(curl -m "$(bc <<< "$TIME_S + $PINGEND - $PINGSTART")" -r 0-"$SIZE" "$MIRROR"/releases/amd64/autobuilds/"$TESTFILE" | wc -c; exit ${PIPESTATUS[0]})"; RET=$?
+DLSIZE="$(curl -m "$(bc <<< "$TIME_S + $PINGEND - $PINGSTART")" -r 0-"$SIZE" "$MIRROR"/releases/amd64/autobuilds/"$TESTFILE" | wc -c; exit ${PIPESTATUS[0]})"; RET="$?"
 DLEND="$(date +%s.%N)"
 
 echo "$(bc <<< "$DLSIZE / 1048576")MB in "$(bc <<< "($DLEND - $DLSTART) * 1000")"ms = "$(bc <<< "$DLSIZE / ($DLEND - $DLSTART) / 131072")"Mbit/s"
 
-if find "$MIRRORCACHE" -mtime -3 -exec false {} +
+if [ "$DLSIZE" -lt "$SIZE" ]
 then
-	refresh
+  RET=12
 fi
 
-exit $RET
+if [ "$RET" -eq 0 ]
+then
+	if find "$MIRRORCACHE" -mtime -3 -exec false {} +
+	then
+		refresh
+	fi
+fi
+
+exit "$RET"
