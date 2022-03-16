@@ -233,6 +233,29 @@ if [ -z "$WG_HOST$WG_PORT" ]; then
   exit 1
 fi
 
+if ! ip route show table "$HARDWARE_ROUTE_TABLE" 2>/dev/null | grep -q .
+then
+	ROUTES_ADD=$(
+		for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
+		do
+			ip route show | grep "dev $IF" | sed -e 's/linkdown//' | sed -e "s/^/ip route add table $HARDWARE_ROUTE_TABLE /"
+		done
+	)
+	if [ "$EUID" -eq 0 ]
+	then
+		sh <<< "$ROUTES_ADD"
+	else
+		echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
+		echo sudo sh '<<<' "$ROUTES_ADD"
+		sudo sh <<< "$ROUTES_ADD"
+	fi
+	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
+	ip route show table "$HARDWARE_ROUTE_TABLE" | sed -e "s/^/${TAB}/"
+	echo
+	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
+	echo "Managing such hooks is beyond the scope of this script"
+fi
+
 if ! [ -r "$REMOTEINFO" ]
 then
 	if [ -z "$TOK" ]
@@ -299,7 +322,7 @@ then
 	fi
 
 	echo "Registering public key with ${BOLD}$WG_NAME $WG_HOST${NORMAL}"
-	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup china pref 10
+	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup $HARDWARE_ROUTE_TABLE pref 10
 
 	if ! curl -GsS \
 		--max-time 5 \
@@ -377,29 +400,6 @@ ENDWG
 	fi
 	echo
 	exit 0
-fi
-
-if ! ip route show table "$HARDWARE_ROUTE_TABLE" 2>/dev/null | grep -q .
-then
-	ROUTES_ADD=$(
-		for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
-		do
-			ip route show | grep "dev $IF" | sed -e 's/linkdown//' | sed -e "s/^/ip route add table $HARDWARE_ROUTE_TABLE /"
-		done
-	)
-	if [ "$EUID" -eq 0 ]
-	then
-		sh <<< "$ROUTES_ADD"
-	else
-		echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
-		echo sudo sh '<<<' "$ROUTES_ADD"
-		sudo sh <<< "$ROUTES_ADD"
-	fi
-	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
-	ip route show table "$HARDWARE_ROUTE_TABLE" | sed -e "s/^/${TAB}/"
-	echo
-	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
-	echo "Managing such hooks is beyond the scope of this script"
 fi
 
 # echo "Bringing up wireguard interface $PIA_INTERFACE... "
