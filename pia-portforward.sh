@@ -112,8 +112,16 @@ echo > /dev/stderr
 #                                                                             #
 ###############################################################################
 
-echo "To test if your port has successfully been forwarded, execute:"
-echo "transmission-remote -p "$PF_PORT" -pt"
+if [ "$(type -t portforward_hook)" == "function" ]
+then
+	echo "Executing portforward hook ..."
+	( portforward_hook $PF_PORT; )
+else
+	echo "You could provide a portforward hook in your pia-wg.conf to automatically feed the bound port to some other program or system"
+	echo "To do so, add:"
+	echo "    portforward_hook() { my_program $PF_PORT; }"
+	echo "or similar to $PIA_CONFIG"
+fi
 
 ###############################################################################
 #                                                                             #

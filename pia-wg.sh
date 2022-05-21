@@ -145,6 +145,10 @@ CLIENT_PRIVATE_KEY="$CLIENT_PRIVATE_KEY"
 # If you have daemons that you want to force to only use the VPN and already have a routing table for this purpose, specify it here
 # pia-wg will add a default route via the PIA VPN link to that table for you
 # VPNONLY_ROUTE_TABLE="vpnonly"
+
+# post-portforward hook
+# you can use \$PF_PORT for the received port numberr
+# PORTFORWARD_HOOK="my_program \$PF_PORT"
 ENDCONFIG
 	echo "Config saved"
 fi
