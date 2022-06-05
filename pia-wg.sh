@@ -237,27 +237,30 @@ if [ -z "$WG_HOST$WG_PORT" ]; then
   exit 1
 fi
 
-if ! ip route show table "$HARDWARE_ROUTE_TABLE" 2>/dev/null | grep -q .
+if [ -z "$OPT_CONFIGONLY" ]
 then
-	ROUTES_ADD=$(
-		for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
-		do
-			ip route show | grep "dev $IF" | sed -e 's/linkdown//' | sed -e "s/^/ip route add table $HARDWARE_ROUTE_TABLE /"
-		done
-	)
-	if [ "$EUID" -eq 0 ]
+	if ! ip route show table "$HARDWARE_ROUTE_TABLE" 2>/dev/null | grep -q .
 	then
-		sh <<< "$ROUTES_ADD"
-	else
-		echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
-		echo sudo sh '<<<' "$ROUTES_ADD"
-		sudo sh <<< "$ROUTES_ADD"
+		ROUTES_ADD=$(
+			for IF in $(ip link show | grep -B1 'link/ether' | grep '^[0-9]' | cut -d: -f2)
+			do
+				ip route show | grep "dev $IF" | sed -e 's/linkdown//' | sed -e "s/^/ip route add table $HARDWARE_ROUTE_TABLE /"
+			done
+		)
+		if [ "$EUID" -eq 0 ]
+		then
+			sh <<< "$ROUTES_ADD"
+		else
+			echo "Build a routing table with only hardware links to stop wireguard packets going back through the VPN:"
+			echo sudo sh '<<<' "$ROUTES_ADD"
+			sudo sh <<< "$ROUTES_ADD"
+		fi
+		echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
+		ip route show table "$HARDWARE_ROUTE_TABLE" | sed -e "s/^/${TAB}/"
+		echo
+		echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
+		echo "Managing such hooks is beyond the scope of this script"
 	fi
-	echo "Table $HARDWARE_ROUTE_TABLE (hardware network links) now contains:"
-	ip route show table "$HARDWARE_ROUTE_TABLE" | sed -e "s/^/${TAB}/"
-	echo
-	echo "${BOLD}*** PLEASE NOTE: if this table isn't updated by your network post-connect hooks, your connection cannot remain up if your network links change${NORMAL}"
-	echo "Managing such hooks is beyond the scope of this script"
 fi
 
 if ! [ -r "$REMOTEINFO" ]
