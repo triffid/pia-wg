@@ -158,13 +158,13 @@ if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
 	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' -o "$DATAFILE_NEW.temp" || exit 1
-	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
+	if [ "$(head -n1 < "$DATAFILE_NEW.temp" | jq '.regions | map_values(select(.servers.wg)) | keys' 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
 		echo "You can try again if there was a transient error"
 		exit 1
 	else
-		jq -cM '.' "$DATAFILE_NEW.temp" > "$DATAFILE_NEW" 2>/dev/null
+		head -n1 < "$DATAFILE_NEW.temp" | jq -cM '.' > "$DATAFILE_NEW" 2>/dev/null
 	fi
 fi
 
