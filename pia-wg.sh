@@ -206,7 +206,7 @@ then
 		(
 			echo "${BOLD}Location${TAB}Region${TAB}Port Forward${TAB}Geolocated${NORMAL}"
 			echo "----------------${TAB}------------------${TAB}------------${TAB}----------"
-			jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW"
+			jq -r '.regions | .[] | '${PORTFORWARD:+'| select(.port_forward)'}' [.id, .name, .port_forward, .geo] | "'$'\e''[1m\(.[0])'$'\e''[0m\t\(.[1])\t\(.[2])\t\(.[3])"' "$DATAFILE_NEW" | sort
 		) | column -t -s "${TAB}"
 		echo "${PORTFORWARD:+'Note: only port-forwarding regions displayed'}"
 		echo "Please edit $CONFIG and change your desired location, then try again"
