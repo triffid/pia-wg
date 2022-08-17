@@ -119,6 +119,7 @@ then
 	then
 		read -p "Please enter your privateinternetaccess.com username: " PIA_USERNAME
 	fi
+	mkdir -p "$(dirname "$CONFIG")"
 	cat <<ENDCONFIG > "$CONFIG"
 # your privateinternetaccess.com username (not needed if you already have an auth token)
 PIA_USERNAME="$PIA_USERNAME"
