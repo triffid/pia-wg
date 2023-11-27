@@ -283,6 +283,7 @@ then
 			echo "Your password will NOT be saved."
 			read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
 			[ -z "$PASS" ] && exit 1
+			echo
 		fi
 		TOK=$(curl -s -X POST \
 			-H "Content-Type: application/json" \
