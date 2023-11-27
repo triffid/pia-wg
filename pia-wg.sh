@@ -158,7 +158,7 @@ fi
 if ! [ -r "$DATAFILE_NEW" ]
 then
 	echo "Fetching new generation server list from PIA"
-	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' -o "$DATAFILE_NEW.temp" || exit 1
+	curl --silent --show-error --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' -o "$DATAFILE_NEW.temp" || exit 1
 	if [ "$(head -n1 < "$DATAFILE_NEW.temp" | jq '.regions | map_values(select(.servers.wg)) | keys' 2>/dev/null | wc -l)" -le 30 ]
 	then
 		echo "Bad serverlist retrieved to $DATAFILE_NEW.temp, exiting"
@@ -172,7 +172,7 @@ fi
 if ! [ -r "$PIA_CERT" ]
 then
 	echo "Fetching PIA self-signed RSA certificate from github"
-	curl --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
+	curl --silent --show-error --max-time 15 'https://raw.githubusercontent.com/pia-foss/desktop/master/daemon/res/ca/rsa_4096.crt' > "$PIA_CERT" || exit 1
 fi
 
 if [ -n "$OPT_RECONNECT" ]
@@ -284,7 +284,7 @@ then
 			read -p "Please enter your privateinternetaccess.com password for $PIA_USERNAME: " -s PASS
 			[ -z "$PASS" ] && exit 1
 		fi
-		TOK=$(curl -X POST \
+		TOK=$(curl -s -X POST \
 			-H "Content-Type: application/json" \
 			-d "{\"username\":\"$PIA_USERNAME\",\"password\":\"$PASS\"}" \
 			"https://www.privateinternetaccess.com/api/client/v2/token" | jq -r '.token')
@@ -532,9 +532,9 @@ if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
-	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6"
-	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6" > "$DATAFILE_NEW.temp" || \
-	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' > "$DATAFILE_NEW.temp" || exit 0
+	echo curl --silent --show-error --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6"
+	curl --silent --show-error --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6" > "$DATAFILE_NEW.temp" || \
+	curl --silent --show-error --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' > "$DATAFILE_NEW.temp" || exit 0
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
 	then
