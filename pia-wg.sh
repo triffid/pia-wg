@@ -534,8 +534,8 @@ if find "$DATAFILE_NEW" -mtime -3 -exec false {} +
 then
 	echo "PIA endpoint list is stale, Fetching new generation wireguard server list"
 
-	echo curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6"
-	curl --max-time 15 --interface "$PIA_INTERFACE" --CAcert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6" > "$DATAFILE_NEW.temp" || \
+	echo curl --max-time 15 --interface "$PIA_INTERFACE" --cacert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6"
+	curl --max-time 15 --interface "$PIA_INTERFACE" --cacert "$PIA_CERT" --resolve "$WG_CN:443:10.0.0.1" "https://$WG_CN:443/vpninfo/servers/v6" > "$DATAFILE_NEW.temp" || \
 	curl --max-time 15 'https://serverlist.piaservers.net/vpninfo/servers/v6' > "$DATAFILE_NEW.temp" || exit 0
 
 	if [ "$(jq '.regions | map_values(select(.servers.wg)) | keys' "$DATAFILE_NEW.temp" 2>/dev/null | wc -l)" -le 30 ]
