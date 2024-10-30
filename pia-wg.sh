@@ -330,9 +330,9 @@ then
 	fi
 
 	echo "Registering public key with ${BOLD}$WG_NAME $WG_HOST${NORMAL}"
-	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup $HARDWARE_ROUTE_TABLE pref 10
+	[ "$EUID" -eq 0 ] && [ -z "$OPT_CONFIGONLY" ] && ip rule add to "$WG_HOST" lookup $HARDWARE_ROUTE_TABLE pref 10 2>/dev/null
 
-	if ! curl -GsS \
+	if ! curl -v -v -v -D /dev/stderr -GsS \
 		--max-time 5 \
 		--data-urlencode "pubkey=$CLIENT_PUBLIC_KEY" \
 		--data-urlencode "pt=$TOK" \
@@ -425,7 +425,7 @@ then
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
 		# ensure we don't get a packet storm loop
-		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10
+		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10 2>/dev/null
 
 		if [ "$OLD_KEY" != "$SERVER_PUBLIC_KEY" ]
 		then
@@ -447,15 +447,15 @@ then
 		fi
 
 		# Note: only if Table = off in wireguard config file above
-		ip route add default dev "$PIA_INTERFACE"
+		ip route add default dev "$PIA_INTERFACE" 2>/dev/null
 
 		# Specific to my setup
-		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE"
+		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE" 2>/dev/null
 	else
 		echo "Bringing up interface '$PIA_INTERFACE'"
 
 		# Note: unnecessary if Table != off above, but doesn't hurt.
-		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10
+		ip rule add fwmark 51820 lookup "$HARDWARE_ROUTE_TABLE" pref 10 2>/dev/null
 
 		# bring up wireguard interface
 		ip link add "$PIA_INTERFACE" type wireguard || exit 1
@@ -464,10 +464,10 @@ then
 		ip addr replace "$PEER_IP" dev "$PIA_INTERFACE" || exit 1
 
 		# Note: only if Table = off in wireguard config file above
-		ip route add default dev "$PIA_INTERFACE"
+		ip route add default dev "$PIA_INTERFACE" 2>/dev/null
 
 		# Specific to my setup
-		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE"
+		ip route add default table "$VPNONLY_ROUTE_TABLE" dev "$PIA_INTERFACE" 2>/dev/null
 
 	fi
 else
@@ -514,17 +514,19 @@ fi
 
 TRIES=0
 echo -n "Waiting for connection to stabilise..."
-while ! ping -n -c1 -w 1 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
+ping -n -c1 -w 1 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
+# while ! ping -n -c1 -w 1 -s 1280 -I "$PIA_INTERFACE" "$SERVER_VIP" &>/dev/null
+while [ $(( $(date +%s) - $(wg show "$PIA_INTERFACE" latest-handshakes | cut $'-d\t' -f2) )) -gt 120 ]
 do
-	echo -n "."
+	echo -n "$(wg show "$PIA_INTERFACE" latest-handshakes | cut $'-d\t' -f2)."
 	TRIES=$(( $TRIES + 1 ))
-	if [[ $TRIES -ge 3 ]]
+	if [[ $TRIES -ge 5 ]]
 	then
 		echo "Connection failed to stabilise, try again"
 		rm -f "$CONNCACHE" "$REMOTEINFO"
 		exit 1
 	fi
-	sleep 0.5 # so we can catch ctrl+c
+	sleep 1 # so we can catch ctrl+c
 done
 echo " OK"
 
